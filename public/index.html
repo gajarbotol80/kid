@@ -1,0 +1,2259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parental Shield — Command Center</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-void:       #04060f;
+      --bg-deep:       #070c1a;
+      --bg-card:       #0b1124;
+      --bg-card2:      #0d1329;
+      --bg-row:        #0f162e;
+      --border:        #1a2545;
+      --border-hot:    #2a3c6a;
+      --accent:        #e8305a;
+      --accent2:       #7c3aed;
+      --accent-glow:   rgba(232,48,90,0.18);
+      --teal:          #0dd;
+      --amber:         #f59e0b;
+      --green:         #22c55e;
+      --text-1:        #f0f4ff;
+      --text-2:        #8a9cc8;
+      --text-3:        #3d4f78;
+      --font-head:     'Rajdhani', sans-serif;
+      --font-body:     'Inter', sans-serif;
+      --font-mono:     'JetBrains Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-void);
+      color: var(--text-1);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg-deep); }
+    ::-webkit-scrollbar-thumb { background: #1d2b52; border-radius: 99px; }
+
+    /* ── Grid bg texture ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(26,37,69,0.15) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(26,37,69,0.15) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Top glow ── */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 300px;
+      background: radial-gradient(ellipse, rgba(232,48,90,0.12) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─────────────────────────────
+       PASSWORD GATE
+    ───────────────────────────── */
+    #password-gate {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at 50% 0%, #0d1530 0%, #04060f 70%);
+    }
+
+    .gate-box {
+      width: 380px;
+      padding: 44px 40px 36px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-hot);
+      border-radius: 20px;
+      box-shadow: 0 0 80px rgba(232,48,90,0.1), 0 40px 80px rgba(0,0,0,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .gate-box::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), var(--accent2), transparent);
+    }
+
+    .gate-logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .gate-shield-icon {
+      width: 64px; height: 64px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 16px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 28px;
+      margin-bottom: 16px;
+      box-shadow: 0 0 30px rgba(232,48,90,0.4);
+    }
+
+    .gate-title {
+      font-family: var(--font-head);
+      font-size: 22px; font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--text-1);
+    }
+
+    .gate-sub {
+      font-size: 11px; color: var(--text-3);
+      letter-spacing: 2px; margin-top: 4px;
+    }
+
+    .gate-error {
+      background: rgba(220,38,38,0.15);
+      border: 1px solid rgba(220,38,38,0.3);
+      color: #fca5a5;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      text-align: center;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .input-wrap {
+      position: relative;
+      margin-bottom: 14px;
+    }
+
+    .input-wrap input {
+      width: 100%;
+      padding: 14px 48px 14px 16px;
+      background: var(--bg-deep);
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      color: var(--text-1);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+
+    .input-wrap input:focus { border-color: var(--accent); }
+
+    .input-wrap .eye-btn {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      cursor: pointer; color: var(--text-3); font-size: 16px;
+      transition: color .2s;
+    }
+    .input-wrap .eye-btn:hover { color: var(--text-2); }
+
+    .gate-btn {
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      border: none; border-radius: 12px;
+      font-family: var(--font-head);
+      font-size: 16px; font-weight: 700;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      box-shadow: 0 4px 20px rgba(232,48,90,0.3);
+    }
+    .gate-btn:hover { opacity: 0.9; }
+    .gate-btn:active { transform: scale(0.98); }
+
+    .gate-footer { text-align: center; margin-top: 22px; font-size: 11px; color: var(--text-3); }
+
+    @keyframes shake {
+      0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)}
+      40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)}
+    }
+
+    /* ─────────────────────────────
+       MAIN APP SHELL
+    ───────────────────────────── */
+    #main-app { display: none; position: relative; z-index: 1; min-height: 100vh; flex-direction: column; }
+
+    /* ── HEADER ── */
+    #main-header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(7,12,26,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .header-brand {
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .brand-icon {
+      width: 34px; height: 34px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      box-shadow: 0 0 16px rgba(232,48,90,0.35);
+      flex-shrink: 0;
+    }
+
+    .brand-name {
+      font-family: var(--font-head);
+      font-size: 18px; font-weight: 700;
+      letter-spacing: 3px;
+      color: var(--text-1);
+    }
+    .brand-sub { font-size: 10px; color: var(--text-3); letter-spacing: 1px; }
+
+    .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    .token-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 11px; color: var(--text-2);
+    }
+    .token-badge input {
+      background: transparent; border: none; outline: none;
+      color: var(--accent); font-family: var(--font-mono);
+      font-size: 12px; font-weight: 700; width: 120px;
+    }
+
+    .status-pill {
+      display: flex; align-items: center; gap: 6px;
+      border-radius: 20px; padding: 5px 12px;
+      font-size: 11px; font-weight: 600;
+      border: 1px solid;
+      transition: all .3s;
+    }
+    .status-pill.offline { background: rgba(220,38,38,0.1); border-color: rgba(220,38,38,0.25); color: #f87171; }
+    .status-pill.online  { background: rgba(34,197,94,0.1);  border-color: rgba(34,197,94,0.25);  color: #4ade80; }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; }
+    .dot-red   { background: #ef4444; }
+    .dot-green { background: #22c55e; }
+    @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+    .dot-pulse { animation: pulse-dot 2s infinite; }
+
+    /* ── LAYOUT ── */
+    .app-body {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 60px);
+    }
+
+    @media(max-width:1024px) {
+      .app-body { grid-template-columns: 1fr; }
+    }
+
+    /* ── SIDEBAR ── */
+    #sidebar {
+      background: var(--bg-card);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .sidebar-title {
+      font-family: var(--font-head);
+      font-size: 12px; font-weight: 700;
+      letter-spacing: 2px; color: var(--text-2);
+      text-transform: uppercase;
+    }
+
+    .device-count-badge {
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 11px; font-weight: 700;
+      color: var(--accent);
+    }
+
+    #devices-container {
+      flex: 1; overflow-y: auto; padding: 10px;
+    }
+
+    .device-card {
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-row);
+      cursor: pointer;
+      transition: all .2s;
+      margin-bottom: 8px;
+    }
+
+    .device-card:hover { border-color: var(--border-hot); background: #121a38; }
+
+    .device-card.active {
+      border-color: var(--accent);
+      background: rgba(232,48,90,0.08);
+      box-shadow: 0 0 20px rgba(232,48,90,0.1);
+    }
+
+    .device-row { display: flex; align-items: center; justify-content: space-between; }
+
+    .device-name {
+      font-weight: 700; font-size: 14px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 160px;
+    }
+
+    .batt-chip {
+      font-family: var(--font-mono);
+      font-size: 11px; font-weight: 700;
+      display: flex; align-items: center; gap: 4px;
+    }
+
+    .device-meta {
+      font-size: 11px; color: var(--text-2);
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 6px;
+    }
+
+    .casting-chip {
+      background: rgba(232,48,90,0.12);
+      border: 1px solid rgba(232,48,90,0.3);
+      color: var(--accent);
+      font-size: 9px; font-weight: 800;
+      padding: 2px 6px; border-radius: 4px;
+      letter-spacing: 1px;
+      animation: pulse-dot 1.8s infinite;
+    }
+
+    .no-device {
+      text-align: center;
+      padding: 48px 16px;
+      color: var(--text-3);
+    }
+    .no-device i { font-size: 32px; margin-bottom: 12px; display: block; }
+    .no-device p { font-size: 12px; line-height: 1.6; }
+
+    /* ── MAIN CONTENT ── */
+    #main-content {
+      overflow-y: auto;
+      display: flex; flex-direction: column;
+    }
+
+    /* ── TABS ── */
+    #tab-bar {
+      display: flex;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      gap: 0;
+      position: sticky;
+      top: 0; z-index: 50;
+    }
+
+    .tab-btn {
+      padding: 14px 20px;
+      font-size: 12px; font-weight: 600;
+      color: var(--text-3);
+      border: none; background: transparent;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all .2s;
+      white-space: nowrap;
+      display: flex; align-items: center; gap: 6px;
+      letter-spacing: .5px;
+    }
+
+    .tab-btn:hover { color: var(--text-2); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tab-pane { display: none; padding: 20px; }
+    .tab-pane.active { display: block; }
+
+    /* ── CARDS ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .card-header {
+      padding: 14px 18px;
+      background: var(--bg-card2);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-title {
+      font-family: var(--font-head);
+      font-size: 13px; font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .card-body { padding: 16px 18px; }
+
+    /* ── MIRROR VIEWER ── */
+    #mirror-viewport {
+      background: #000;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 400px;
+      position: relative;
+    }
+
+    #screen-wrapper {
+      position: relative;
+      width: 240px;
+      aspect-ratio: 9/16;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 6px solid #1a2545;
+      box-shadow: 0 0 40px rgba(0,0,0,0.8);
+      display: none;
+    }
+
+    #screen-wrapper:fullscreen,
+    #screen-wrapper:-webkit-full-screen {
+      width: 100vw !important; height: 100vh !important;
+      border-radius: 0 !important; border: none !important;
+      background: #000;
+    }
+
+    #mirror-canvas {
+      width: 100%; height: 100%; object-fit: cover;
+      transition: transform .15s;
+    }
+
+    #standby-info {
+      text-align: center; color: var(--text-3); padding: 20px;
+    }
+    #standby-info i { font-size: 40px; margin-bottom: 12px; display: block; color: var(--text-3); }
+    #standby-info h4 { font-size: 14px; color: var(--text-2); margin-bottom: 8px; }
+    #standby-info p { font-size: 12px; line-height: 1.6; max-width: 280px; }
+
+    #mirror-loader {
+      position: absolute; inset: 0;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 14px;
+      background: rgba(4,6,15,0.92);
+    }
+
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid #141b33;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fade-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+    .fade-in { animation: fade-in .25s ease-out; }
+
+    /* ── METRIC STRIP ── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4,1fr);
+      gap: 8px;
+      padding: 10px 18px;
+      background: var(--bg-void);
+      border-bottom: 1px solid var(--border);
+    }
+
+    @media(max-width:640px) { .metrics-grid { grid-template-columns: repeat(2,1fr); } }
+
+    .metric-cell {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .metric-icon { font-size: 16px; flex-shrink: 0; }
+    .metric-label { font-size: 9px; color: var(--text-3); text-transform: uppercase; letter-spacing: 1px; }
+    .metric-val { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text-1); margin-top: 1px; }
+
+    /* ── CONTROL BAR ── */
+    .ctrl-bar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 12px; font-weight: 700;
+      cursor: pointer; border: none;
+      transition: all .15s;
+      white-space: nowrap;
+      letter-spacing: .5px;
+    }
+
+    .btn:active { transform: scale(0.96); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 2px 12px rgba(232,48,90,0.3); }
+    .btn-primary:hover { background: #d62a50; }
+    .btn-stop { background: #1c2540; color: var(--text-2); border: 1px solid var(--border-hot); }
+    .btn-stop:hover { background: #222e54; }
+    .btn-amber { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+    .btn-amber:hover { background: rgba(245,158,11,0.22); }
+    .btn-red { background: rgba(220,38,38,0.15); color: #f87171; border: 1px solid rgba(220,38,38,0.25); }
+    .btn-red:hover { background: rgba(220,38,38,0.22); }
+    .btn-green { background: rgba(34,197,94,0.12); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+    .btn-green:hover { background: rgba(34,197,94,0.18); }
+    .btn-ghost { background: var(--bg-row); color: var(--text-2); border: 1px solid var(--border); }
+    .btn-ghost:hover { border-color: var(--border-hot); color: var(--text-1); }
+    .btn-purple { background: rgba(124,58,237,0.15); color: #a78bfa; border: 1px solid rgba(124,58,237,0.25); }
+    .btn-purple:hover { background: rgba(124,58,237,0.22); }
+    .btn-teal { background: rgba(0,221,221,0.1); color: var(--teal); border: 1px solid rgba(0,221,221,0.2); }
+    .btn-teal:hover { background: rgba(0,221,221,0.16); }
+    .btn-icon { padding: 7px 10px; }
+
+    .btn-gradient {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; border: none;
+      box-shadow: 0 2px 16px rgba(232,48,90,0.3);
+    }
+    .btn-gradient:hover { opacity: .88; }
+
+    /* ── SECTION HEADING ── */
+    .sec-head {
+      font-family: var(--font-head);
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 2px; color: var(--text-3);
+      text-transform: uppercase;
+      padding: 8px 0 10px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
+
+    /* ── ZOOM/ROTATE CONTROLS ── */
+    .zoom-wrap {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--bg-row); border: 1px solid var(--border);
+      border-radius: 8px; padding: 5px 10px;
+      font-size: 11px; color: var(--text-2);
+    }
+    .zoom-wrap input[type=range] { width: 80px; accent-color: var(--accent); height: 3px; }
+    .zoom-val { font-family: var(--font-mono); color: var(--accent); font-weight: 700; min-width: 34px; text-align: right; }
+
+    /* ── LOGS ── */
+    #logs-container {
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 6px;
+    }
+
+    .log-item {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      margin-bottom: 5px;
+      font-size: 11px;
+      animation: fade-in .2s;
+    }
+
+    .log-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+
+    .log-title { font-weight: 600; color: var(--text-1); }
+    .log-text { color: var(--text-2); margin-top: 1px; line-height: 1.4; }
+    .log-meta { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); margin-top: 2px; }
+
+    /* ── FILE EXPLORER ── */
+    .explorer-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .explorer-table th {
+      background: var(--bg-card2);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: var(--text-3);
+      text-transform: uppercase;
+    }
+
+    .explorer-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #0d1428;
+      transition: background .15s;
+    }
+
+    .explorer-table tr:hover td { background: var(--bg-row); }
+    .explorer-table tr.flagged td { background: rgba(220,38,38,0.05); }
+
+    /* ── POLICY / INPUTS ── */
+    textarea, input[type=text], input[type=number], input[type=password] {
+      background: var(--bg-deep);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-1);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 10px 14px;
+      width: 100%;
+      outline: none;
+      transition: border-color .2s;
+    }
+    textarea:focus, input:focus { border-color: var(--accent); }
+    textarea::placeholder, input::placeholder { color: var(--text-3); }
+
+    /* ── SCREEN TIME RING ── */
+    .ring-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+    .ring-label { position: absolute; text-align: center; }
+    .ring-label .ring-val { font-family: var(--font-head); font-size: 22px; font-weight: 700; }
+    .ring-label .ring-sub { font-size: 10px; color: var(--text-2); }
+
+    /* ── TOAST ── */
+    #toast-container {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9000;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .toast {
+      min-width: 240px; max-width: 320px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid;
+      font-size: 13px; font-weight: 600;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      animation: fade-in .2s;
+      transition: opacity .3s;
+    }
+
+    .toast-success { background: rgba(21,44,30,0.95); border-color: rgba(34,197,94,.4); color: #4ade80; }
+    .toast-error   { background: rgba(44,14,14,0.95);  border-color: rgba(220,38,38,.4);  color: #f87171; }
+    .toast-info    { background: rgba(15,23,48,0.95);  border-color: rgba(96,165,250,.4); color: #93c5fd; }
+
+    /* ── MODAL ── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(4,6,15,0.92);
+      backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-hot);
+      border-radius: 16px;
+      width: 100%; max-width: 640px;
+      max-height: 90vh;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      animation: fade-in .2s;
+    }
+
+    .modal-head {
+      padding: 14px 18px;
+      background: var(--bg-card2);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .modal-title { font-family: var(--font-head); font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .modal-body { padding: 18px; flex: 1; overflow-y: auto; }
+    .modal-footer { padding: 12px 18px; background: var(--bg-void); border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+
+    /* ── BREADCRUMBS ── */
+    .breadcrumbs {
+      display: flex; align-items: center; gap: 4px;
+      font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+      overflow-x: auto; white-space: nowrap; padding: 4px 0;
+    }
+    .breadcrumbs span { color: var(--text-3); }
+
+    /* ── SEARCH INPUT ── */
+    .search-wrap {
+      position: relative;
+    }
+    .search-wrap i {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      color: var(--text-3); font-size: 11px;
+    }
+    .search-wrap input { padding-left: 30px; }
+
+    /* ── CHIP ── */
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 10px; font-weight: 700;
+      letter-spacing: .5px; text-transform: uppercase;
+    }
+    .chip-red    { background: rgba(220,38,38,0.12); border: 1px solid rgba(220,38,38,0.25); color: #f87171; }
+    .chip-teal   { background: rgba(0,221,221,0.08);  border: 1px solid rgba(0,221,221,0.2);  color: var(--teal); }
+    .chip-green  { background: rgba(34,197,94,0.1);   border: 1px solid rgba(34,197,94,0.2);  color: var(--green); }
+    .chip-amber  { background: rgba(245,158,11,0.1);  border: 1px solid rgba(245,158,11,0.2); color: var(--amber); }
+    .chip-purple { background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.2); color: #a78bfa; }
+
+    /* ── DANGER ZONE SECTION ── */
+    .danger-zone {
+      border: 1px solid rgba(220,38,38,0.2);
+      border-radius: 12px;
+      padding: 14px;
+      background: rgba(220,38,38,0.04);
+    }
+
+    /* ── CONTACTS TABLE ── */
+    .contact-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .contact-avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    /* ── SCREEN TIME BAR ── */
+    .st-bar-bg {
+      background: var(--bg-row);
+      border-radius: 99px;
+      height: 8px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .st-bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      transition: width .6s ease;
+    }
+
+    /* ── APP USAGE LIST ── */
+    .app-usage-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid #0d1428;
+    }
+
+    /* ── LOCATION ── */
+    #location-map-frame {
+      width: 100%; height: 200px;
+      border: none; border-radius: 10px;
+      margin-top: 10px;
+      display: none;
+    }
+
+    /* HIDDEN UTIL */
+    .hidden { display: none !important; }
+
+    /* ── RESPONSIVE ── */
+    @media(max-width:768px) {
+      #main-header { padding: 0 14px; }
+      .brand-sub { display: none; }
+      .tab-btn { padding: 12px 12px; font-size: 11px; }
+      .metrics-grid { grid-template-columns: repeat(2,1fr); }
+    }
+
+    /* ── MOBILE SWAP FLOATING BUTTON ── */
+    .mobile-nav-fab {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      border: none;
+      border-radius: 50px;
+      padding: 12px 20px;
+      font-family: var(--font-head);
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 1px;
+      box-shadow: 0 6px 20px rgba(236, 72, 153, 0.4);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      gap: 8px;
+      z-index: 9999;
+      transition: all 0.3s ease;
+    }
+    .mobile-nav-fab:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(236, 72, 153, 0.6);
+    }
+    @media(max-width:1024px) {
+      .mobile-nav-fab {
+        display: flex;
+      }
+    }
+  </style>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    const isTelegramMiniApp = !!tg && tg.initData !== "";
+    if (isTelegramMiniApp) {
+      tg.ready(); tg.expand();
+      document.body.classList.add('tg-miniapp');
+      tg.BackButton.onClick(() => {
+        if (typeof clearSelectedDevice === 'function' && selectedDeviceId) clearSelectedDevice();
+        else tg.BackButton.hide();
+      });
+    }
+  </script>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════
+     PASSWORD GATE
+═══════════════════════════════════════════════ -->
+<div id="password-gate">
+  <div class="gate-box">
+    <div class="gate-logo">
+      <div class="gate-shield-icon">🛡️</div>
+      <div class="gate-title">PARENTAL SHIELD</div>
+      <div class="gate-sub">COMMAND CENTER · AUTHORIZED ACCESS ONLY</div>
+    </div>
+
+    <div id="gate-error" class="gate-error">❌ Wrong password. Try again.</div>
+
+    <div class="input-wrap">
+      <input id="gate-pwd" type="password" placeholder="Enter admin password…"
+        autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      <span class="eye-btn" onclick="togglePwd()"><i class="fa-solid fa-eye"></i></span>
+    </div>
+
+    <button id="gate-btn" class="gate-btn" onclick="doLogin()">
+      <i class="fa-solid fa-lock"></i>&nbsp;&nbsp;ENTER PANEL
+    </button>
+
+    <div id="gate-loading" style="display:none;text-align:center;margin-top:14px;color:var(--text-2);font-size:13px;">⏳ Verifying…</div>
+    <div class="gate-footer">Unauthorized access is strictly prohibited.</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     MAIN APP
+═══════════════════════════════════════════════ -->
+<div id="main-app">
+
+  <!-- HEADER -->
+  <header id="main-header">
+    <div class="header-brand">
+      <div class="brand-icon">🛡️</div>
+      <div>
+        <div class="brand-name">PARENTAL SHIELD</div>
+        <div class="brand-sub">MULTI-DEVICE CONTROL CENTER</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="token-badge">
+        <i class="fa-solid fa-key" style="color:var(--accent);font-size:11px;"></i>
+        <input type="text" id="token-input" value="GAJARBOTOL80" readonly>
+        <i class="fa-solid fa-lock" style="color:var(--green);font-size:10px;"></i>
+      </div>
+      <div id="connection-status" class="status-pill offline">
+        <span class="dot dot-red dot-pulse"></span>
+        <span>Disconnected</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- BODY GRID -->
+  <div class="app-body">
+
+    <!-- ── SIDEBAR ── -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title"><i class="fa-solid fa-mobile-screen-button" style="color:var(--accent);"></i>&nbsp; Devices</div>
+        <div class="device-count-badge" id="device-count-badge">0 Online</div>
+      </div>
+      <div id="devices-container">
+        <div class="no-device">
+          <i class="fa-solid fa-circle-nodes"></i>
+          <p>Waiting for device connections…<br><br>Make sure the Parental Shield app is running on the child's phone.</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── MAIN CONTENT ── -->
+    <main id="main-content">
+
+      <!-- TAB BAR -->
+      <nav id="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('tab-mirror')" id="tb-mirror">
+          <i class="fa-solid fa-display"></i> Live Mirror
+        </button>
+        <button class="tab-btn" onclick="switchTab('tab-monitor')" id="tb-monitor">
+          <i class="fa-solid fa-eye"></i> Monitor
+        </button>
+        <button class="tab-btn" onclick="switchTab('tab-files')" id="tb-files">
+          <i class="fa-solid fa-folder-open"></i> Files
+        </button>
+        <button class="tab-btn" onclick="switchTab('tab-policy')" id="tb-policy">
+          <i class="fa-solid fa-shield-halved"></i> Policy
+        </button>
+        <button class="tab-btn" onclick="switchTab('tab-logs')" id="tb-logs">
+          <i class="fa-solid fa-bell"></i> Logs
+          <span id="log-badge" class="hidden" style="background:var(--accent);color:#fff;font-size:9px;padding:1px 5px;border-radius:99px;font-weight:700;">0</span>
+        </button>
+      </nav>
+
+      <!-- ══════════════════════════════════
+           TAB: LIVE MIRROR
+      ═══════════════════════════════════ -->
+      <div class="tab-pane active" id="tab-mirror">
+
+        <!-- Device quick controls (shown when device selected) -->
+        <div id="device-ctrl-bar" class="card hidden fade-in" style="margin-bottom:16px;">
+          <div class="card-header">
+            <div class="card-title">
+              <i class="fa-solid fa-mobile-button" style="color:var(--accent);"></i>
+              <span id="current-device-title">Device</span>
+              <span id="current-device-app" class="chip chip-teal hidden">—</span>
+            </div>
+            <div class="ctrl-bar">
+              <button id="toggle-mirror-btn" class="btn btn-primary" onclick="triggerDeviceMirror()">
+                <i class="fa-solid fa-play"></i> Start Casting
+              </button>
+              <button id="buzz-device-btn" class="btn btn-amber" onclick="triggerDeviceBuzz()">
+                <i class="fa-solid fa-volume-high"></i> Buzz
+              </button>
+              <button id="lock-device-btn" class="btn btn-red" onclick="triggerDeviceLock()">
+                <i class="fa-solid fa-lock"></i> Lock
+              </button>
+              <button id="hide-icon-btn" class="btn btn-ghost btn-icon hidden" onclick="remoteToggleIconVisibility('hide_icon')" title="Hide app icon">
+                <i class="fa-solid fa-eye-slash"></i>
+              </button>
+              <button id="unhide-icon-btn" class="btn btn-ghost btn-icon hidden" onclick="remoteToggleIconVisibility('unhide_icon')" title="Restore app icon">
+                <i class="fa-solid fa-eye"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metrics strip -->
+        <div id="device-metrics-strip" class="card hidden fade-in" style="padding:0;margin-bottom:16px;">
+          <div class="metrics-grid">
+            <div class="metric-cell">
+              <span class="metric-icon" style="color:#22d3ee;">💾</span>
+              <div>
+                <div class="metric-label">Storage</div>
+                <div class="metric-val" id="metric-storage">—</div>
+              </div>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-icon" style="color:#f87171;">🔔</span>
+              <div>
+                <div class="metric-label">Ringer</div>
+                <div class="metric-val" id="metric-ringer">—</div>
+              </div>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-icon" style="color:#4ade80;">📶</span>
+              <div>
+                <div class="metric-label">Network</div>
+                <div class="metric-val" id="metric-network">—</div>
+              </div>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-icon" style="color:#facc15;">🖥</span>
+              <div>
+                <div class="metric-label">Screen</div>
+                <div class="metric-val" id="metric-screen">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mirror viewer card -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-video" style="color:var(--accent);"></i> Live Screen Stream</div>
+            <div class="ctrl-bar" id="mirror-extra-ctrl" style="display:none;">
+              <div class="zoom-wrap">
+                <i class="fa-solid fa-magnifying-glass-plus" style="font-size:11px;color:var(--text-3);"></i>
+                <span style="font-size:11px;color:var(--text-2);">Scale:</span>
+                <input id="zoom-slider" type="range" min="50" max="250" value="100" oninput="updateMirrorScale(this.value)">
+                <span class="zoom-val" id="zoom-value">100%</span>
+              </div>
+              <button class="btn btn-ghost btn-icon" onclick="rotateMirrorFrame()" title="Rotate 90°">
+                <i class="fa-solid fa-rotate"></i>
+              </button>
+              <button class="btn btn-ghost btn-icon" id="fullscreen-btn" onclick="toggleFullScreen()" title="Fullscreen">
+                <i class="fa-solid fa-expand"></i>
+              </button>
+            </div>
+          </div>
+
+          <div id="mirror-viewport">
+            <!-- Standby -->
+            <div id="standby-info">
+              <i class="fa-solid fa-display"></i>
+              <h4>Casting Standby</h4>
+              <p>Select an active device and click <strong>Start Casting</strong>, then accept the system prompt on the child's device to begin real-time streaming.</p>
+            </div>
+
+            <!-- Live frame -->
+            <div id="screen-wrapper">
+              <img id="mirror-canvas" alt="Live stream" draggable="false">
+            </div>
+
+            <!-- Loading -->
+            <div id="mirror-loader">
+              <div class="spinner"></div>
+              <div style="text-align:center;">
+                <div style="color:var(--accent);font-family:var(--font-head);font-size:13px;letter-spacing:2px;font-weight:700;">WAITING FOR STREAM</div>
+                <div style="color:var(--text-2);font-size:11px;margin-top:4px;">Requesting screen capture permission on device…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /tab-mirror -->
+
+      <!-- ══════════════════════════════════
+           TAB: MONITOR
+      ═══════════════════════════════════ -->
+      <div class="tab-pane" id="tab-monitor">
+
+        <!-- Camera -->
+        <div class="card" id="camera-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-camera" style="color:#a78bfa;"></i> Camera Snapshot</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-purple" onclick="takePhoto('front')"><i class="fa-solid fa-user"></i> Front</button>
+              <button class="btn btn-ghost" onclick="takePhoto('back')"><i class="fa-solid fa-camera-rotate"></i> Back</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="snapshot-display" style="min-height:80px;display:flex;align-items:center;justify-content:center;background:var(--bg-void);border-radius:10px;border:1px dashed var(--border);">
+              <span style="color:var(--text-3);font-size:12px;">No snapshot yet — click Front or Back</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Audio -->
+        <div class="card" id="audio-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-microphone" style="color:#f87171;"></i> Ambient Audio Recording</div>
+            <div class="ctrl-bar">
+              <button id="record-btn" class="btn btn-red" onclick="recordAudio(30)"><i class="fa-solid fa-circle-record"></i> Record 30s</button>
+              <button class="btn btn-ghost" onclick="recordAudio(60)">60s</button>
+              <button class="btn btn-ghost" onclick="recordAudio(120)">2min</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="audio-player-area" style="color:var(--text-3);font-size:12px;">No recording yet</div>
+          </div>
+        </div>
+
+        <!-- GPS Location -->
+        <div class="card" id="location-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-location-dot" style="color:#34d399;"></i> GPS Location</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-green" onclick="requestLocation()"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+              <a id="location-map-a" href="#" target="_blank" class="btn btn-teal hidden"><i class="fa-solid fa-map"></i> Open Maps</a>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="location-display" style="font-family:var(--font-mono);font-size:12px;color:var(--text-2);">No location data yet</div>
+            <iframe id="location-map-frame"></iframe>
+          </div>
+        </div>
+
+        <!-- Call Log -->
+        <div class="card" id="calllog-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-phone" style="color:var(--green);"></i> Call Log</div>
+            <button class="btn btn-green" onclick="fetchCallLog()"><i class="fa-solid fa-arrows-rotate"></i> Fetch</button>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="calllog-list" style="max-height:240px;overflow-y:auto;padding:12px;">
+              <span style="color:var(--text-3);font-size:12px;">Not fetched yet</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SMS -->
+        <div class="card" id="sms-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-comment-sms" style="color:#60a5fa;"></i> SMS Messages</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-teal" onclick="fetchSms('inbox')"><i class="fa-solid fa-inbox"></i> Inbox</button>
+              <button class="btn btn-ghost" onclick="fetchSms('sent')"><i class="fa-solid fa-paper-plane"></i> Sent</button>
+            </div>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="sms-list" style="max-height:260px;overflow-y:auto;padding:12px;">
+              <span style="color:var(--text-3);font-size:12px;">Not fetched yet</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contacts -->
+        <div class="card" id="contacts-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-address-book" style="color:#fb923c;"></i> Contacts</div>
+            <button class="btn btn-amber" onclick="fetchContacts()"><i class="fa-solid fa-arrows-rotate"></i> Fetch</button>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="search-wrap" style="padding:10px 12px;border-bottom:1px solid var(--border);">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="contacts-search" placeholder="Search contacts…" oninput="filterContacts()">
+            </div>
+            <div id="contacts-list" style="max-height:240px;overflow-y:auto;padding:12px;">
+              <span style="color:var(--text-3);font-size:12px;">Not fetched yet</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Installed Apps -->
+        <div class="card" id="installed-apps-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-grid-2" style="color:#c084fc;"></i> Installed Apps</div>
+            <button class="btn btn-purple" onclick="fetchInstalledApps()"><i class="fa-solid fa-arrows-rotate"></i> Fetch</button>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="search-wrap" style="padding:10px 12px;border-bottom:1px solid var(--border);">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="apps-search" placeholder="Filter apps…" oninput="filterApps()">
+            </div>
+            <div id="apps-list" style="max-height:240px;overflow-y:auto;padding:12px;">
+              <span style="color:var(--text-3);font-size:12px;">Not fetched yet</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /tab-monitor -->
+
+      <!-- ══════════════════════════════════
+           TAB: FILES
+      ═══════════════════════════════════ -->
+      <div class="tab-pane" id="tab-files">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-folder-tree" style="color:var(--amber);"></i> Remote Storage Explorer</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-ghost" onclick="requestExplorerRoot()"><i class="fa-solid fa-hard-drive"></i> Root</button>
+              <button class="btn btn-amber" onclick="requestExplorerSandbox()"><i class="fa-solid fa-bug"></i> Sandbox</button>
+            </div>
+          </div>
+
+          <!-- Path bar -->
+          <div style="padding:10px 14px;background:var(--bg-void);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div class="breadcrumbs" id="file-breadcrumbs"><span>/storage/emulated/0</span></div>
+            <div class="ctrl-bar" style="margin-left:auto;">
+              <button class="btn btn-ghost btn-icon" onclick="navigateExplorerUp()" id="explorer-up-btn" title="Up">
+                <i class="fa-solid fa-arrow-up"></i>
+              </button>
+              <div class="search-wrap" style="width:220px;">
+                <i class="fa-solid fa-folder-open"></i>
+                <input type="text" id="custom-path-input" placeholder="Custom path…"
+                  onkeydown="if(event.key==='Enter') loadRemoteDirectory(this.value)">
+              </div>
+              <button class="btn btn-primary" onclick="loadRemoteDirectory(document.getElementById('custom-path-input').value)">Go</button>
+            </div>
+          </div>
+
+          <!-- Filter row -->
+          <div style="padding:8px 14px;background:var(--bg-card2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div class="search-wrap" style="width:240px;">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="explorer-search" placeholder="Search files…" oninput="filterExplorerItems()">
+            </div>
+            <div style="display:flex;gap:10px;font-size:11px;color:var(--text-2);">
+              <span><span class="chip chip-red">18+</span> Flagged</span>
+              <span><span class="chip chip-teal">HIDDEN</span> Dot-file</span>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div style="overflow-x:auto;max-height:420px;overflow-y:auto;">
+            <div id="explorer-loader" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px;gap:14px;">
+              <div class="spinner"></div>
+              <div style="color:var(--accent);font-family:var(--font-head);font-size:12px;letter-spacing:2px;">SCANNING FILE SYSTEM…</div>
+            </div>
+            <table class="explorer-table hidden" id="explorer-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Alert</th>
+                  <th>Size</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="explorer-tbody"></tbody>
+            </table>
+            <div id="explorer-empty" class="hidden" style="text-align:center;padding:48px;color:var(--text-3);">
+              <i class="fa-solid fa-box-open" style="font-size:28px;margin-bottom:12px;display:block;"></i>
+              <p>No files or folders in this path</p>
+            </div>
+          </div>
+        </div>
+      </div><!-- /tab-files -->
+
+      <!-- ══════════════════════════════════
+           TAB: POLICY
+      ═══════════════════════════════════ -->
+      <div class="tab-pane" id="tab-policy">
+
+        <!-- App Blocking -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-ban" style="color:#f87171;"></i> App Blocker</div>
+          </div>
+          <div class="card-body">
+            <p style="font-size:12px;color:var(--text-2);margin-bottom:10px;">Comma-separated Android package names to block. When launched, the child is immediately redirected to the home screen.</p>
+            <textarea id="blocked-apps-input" rows="3" placeholder="e.g. com.android.chrome,com.facebook.katana,com.tiktok.android"></textarea>
+          </div>
+        </div>
+
+        <!-- Keyword Filter -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-filter" style="color:var(--teal);"></i> Keyword Shield</div>
+          </div>
+          <div class="card-body">
+            <p style="font-size:12px;color:var(--text-2);margin-bottom:10px;">Comma-separated words/phrases to monitor. Alerts are sent when these appear in notifications or visible screen text.</p>
+            <textarea id="blocked-keywords-input" rows="3" placeholder="e.g. xxx,porn,casino,drugs,kill,suicide"></textarea>
+          </div>
+        </div>
+
+        <!-- Screen Time -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-clock" style="color:var(--amber);"></i> Screen Time Limit</div>
+          </div>
+          <div class="card-body">
+            <p style="font-size:12px;color:var(--text-2);margin-bottom:10px;">Set maximum daily screen time in minutes. Device locks when the limit is reached (0 = unlimited).</p>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <input type="number" id="screen-time-limit-input" min="0" max="1440" placeholder="0"
+                style="width:120px;">
+              <span style="font-size:12px;color:var(--text-2);">minutes / day</span>
+            </div>
+            <div id="screen-time-used-display" style="font-size:12px;color:var(--text-2);margin-top:8px;"></div>
+            <!-- Progress bar -->
+            <div class="st-bar-bg hidden" id="st-progress-bar">
+              <div class="st-bar-fill" id="st-bar-fill" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Save button -->
+        <div style="display:flex;justify-content:flex-end;margin-top:4px;">
+          <button class="btn btn-gradient" onclick="saveParentalPolicies()" style="font-size:14px;padding:10px 28px;">
+            <i class="fa-solid fa-floppy-disk"></i> Apply Policy
+          </button>
+        </div>
+
+      </div><!-- /tab-policy -->
+
+      <!-- ══════════════════════════════════
+           TAB: LOGS
+      ═══════════════════════════════════ -->
+      <div class="tab-pane" id="tab-logs">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-bell" style="color:var(--amber);"></i> Live Activity Logs</div>
+            <div class="ctrl-bar">
+              <div class="search-wrap" style="width:200px;">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="log-search-input" placeholder="Filter logs…" oninput="filterActivityLogs()">
+              </div>
+              <button class="btn btn-ghost" onclick="clearLogs()"><i class="fa-solid fa-trash-can"></i> Clear</button>
+            </div>
+          </div>
+          <div id="logs-container">
+            <div style="text-align:center;padding:40px;color:var(--text-3);">
+              <i class="fa-solid fa-list-check" style="font-size:24px;margin-bottom:12px;display:block;"></i>
+              <p style="font-size:12px;">No activity logged yet. Push notifications will appear here in real-time.</p>
+            </div>
+          </div>
+        </div>
+      </div><!-- /tab-logs -->
+
+    </main>
+  </div><!-- /app-body -->
+
+  <!-- FOOTER -->
+  <footer style="background:var(--bg-card);border-top:1px solid var(--border);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-3);">
+    <span>© 2026 Parental Shield — Real-Time Child Safety System</span>
+    <span style="display:flex;align-items:center;gap:6px;">
+      <span class="dot dot-green dot-pulse"></span>
+      WebSocket: <span style="font-family:var(--font-mono);color:var(--accent);">/ws</span>
+    </span>
+  </footer>
+
+</div><!-- /main-app -->
+
+<!-- FILE PREVIEW MODAL -->
+<div id="preview-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-title"><i class="fa-solid fa-eye" style="color:var(--accent);"></i><span id="preview-modal-title">File View</span></div>
+      <button class="btn btn-ghost btn-icon" onclick="closePreviewModal()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <img id="preview-img" class="hidden" style="max-width:100%;max-height:360px;object-fit:contain;border-radius:8px;border:1px solid var(--border);" alt="Preview">
+      <pre id="preview-text" class="hidden" style="font-size:11px;color:var(--text-2);white-space:pre-wrap;line-height:1.6;background:var(--bg-void);border-radius:8px;border:1px solid var(--border);padding:12px;max-height:360px;overflow:auto;"></pre>
+      <div id="preview-media-container" class="hidden" style="display:flex;flex-direction:column;gap:10px;">
+        <video id="preview-video" controls class="hidden" style="width:100%;border-radius:8px;"></video>
+        <audio id="preview-audio" controls class="hidden" style="width:100%;"></audio>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <span id="preview-modal-size" style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);">—</span>
+      <button id="preview-modal-download" class="btn btn-primary"><i class="fa-solid fa-download"></i> Download</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<!-- MOBILE FLOATING ACTION BUTTON -->
+<button class="mobile-nav-fab" id="mobile-nav-fab" onclick="toggleMobileFocus()">
+  <i class="fa-solid fa-sliders"></i>
+  <span id="mobile-nav-fab-text">⚙️ Controls</span>
+</button>
+
+<!-- ════════════════════════════════════════════
+     WebSocket + App Logic
+═══════════════════════════════════════════════ -->
+<script>
+  // ── Mobile Responsive Floating Action Button Logic ─────────────────────
+  function toggleMobileFocus() {
+    const sidebar = document.getElementById('sidebar');
+    const scrollY = window.scrollY || window.pageYOffset;
+    const threshold = 350; // scroll amount
+    
+    if (scrollY > threshold) {
+      if (sidebar) sidebar.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      const mc = document.getElementById('main-content');
+      if (mc) mc.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  window.addEventListener('scroll', () => {
+    const fabText = document.getElementById('mobile-nav-fab-text');
+    const fabIcon = document.querySelector('#mobile-nav-fab i');
+    const scrollY = window.scrollY || window.pageYOffset;
+    const threshold = 350;
+
+    if (fabText) {
+      if (scrollY > threshold) {
+        fabText.textContent = "Devices";
+        if (fabIcon) {
+          fabIcon.className = "fa-solid fa-mobile-screen-button";
+        }
+      } else {
+        fabText.textContent = "Controls";
+        if (fabIcon) {
+          fabIcon.className = "fa-solid fa-sliders";
+        }
+      }
+    }
+  });
+
+  let ws = null;
+  let devicesList = [];
+  let selectedDeviceId = null;
+  let isMirrorActive = false;
+  let lastLoadedDeviceId = null;
+  let cachedLastFrameSrc = null;
+  let notificationLogsMemory = [];
+  let cachedContacts = [];
+  let cachedApps = [];
+  let currentScale = 100;
+  let currentRotation = 0;
+  let cachedExplorerItems = [];
+  let logCount = 0;
+
+  // ── Tab switching ──────────────────────────────────────────
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    const idx = ['tab-mirror','tab-monitor','tab-files','tab-policy','tab-logs'].indexOf(tabId);
+    document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+    if (tabId === 'tab-logs') {
+      // Clear badge
+      logCount = 0;
+      const badge = document.getElementById('log-badge');
+      badge.classList.add('hidden');
+    }
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────
+  function connect() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+    ws.onopen = () => {
+      updateStatusIndicator(true);
+      ws.send(JSON.stringify({
+        type: 'auth', role: 'admin',
+        token: document.getElementById('token-input').value
+      }));
+    };
+
+    ws.onmessage = e => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'device_list') {
+          devicesList = data.devices;
+          renderDevices();
+          if (selectedDeviceId) {
+            const found = devicesList.find(d => d.id === selectedDeviceId);
+            found ? syncSelectedDevice(found) : handleSelectedDeviceDisconnected();
+          }
+        } else if (data.type === 'status_update') {
+          const t = devicesList.find(d => d.id === data.deviceId);
+          if (t) {
+            Object.assign(t, {
+              battery: data.battery, activeApp: data.activeApp,
+              storage: data.storage, screenState: data.screenState,
+              ringerMode: data.ringerMode, networkType: data.networkType,
+              blockedApps: data.blockedApps, blockedKeywords: data.blockedKeywords,
+              isMirroring: data.isMirroring !== undefined ? data.isMirroring : t.isMirroring,
+              lastFrame: data.lastFrame || t.lastFrame
+            });
+            if (data.screenTimeUsedMin !== undefined) t.screenTimeUsedMin = data.screenTimeUsedMin;
+            if (data.screenTimeLimitMin !== undefined) t.screenTimeLimitMin = data.screenTimeLimitMin;
+            renderDevices();
+            if (selectedDeviceId === data.deviceId) syncSelectedDevice(t);
+          }
+        } else if (data.type === 'screen_frame') {
+          if (selectedDeviceId === data.deviceId && isMirrorActive) {
+            const dev = devicesList.find(d => d.id === data.deviceId);
+            if (dev) dev.lastFrame = data.image;
+            drawScreenFrame(data.image);
+          }
+        } else if (data.type === 'notification') {
+          addNotificationLog(data);
+        } else if (data.type === 'file_manager_response') {
+          handleFileManagerResponse(data);
+        } else if (data.type === 'command_response') {
+          handleCommandResponse(data);
+        } else if (data.type === 'app_blocked') {
+          handleAppBlockedAlert(data);
+        } else if (['photo_result','audio_result','location_result',
+                    'call_log_result','sms_result','incoming_sms',
+                    'contacts_result','installed_apps_result','get_info_result'].includes(data.type)) {
+          handleMonitoringResult(data);
+        } else if (data.type === 'error') {
+          document.getElementById('explorer-loader').style.display = 'none';
+          showToast('❌ ' + data.message, 'error');
+        }
+      } catch(ex) { console.error(ex); }
+    };
+
+    ws.onclose = () => { updateStatusIndicator(false); setTimeout(connect, 3000); };
+    ws.onerror = () => ws.close();
+  }
+
+  function updateStatusIndicator(connected) {
+    const el = document.getElementById('connection-status');
+    if (connected) {
+      el.className = 'status-pill online';
+      el.innerHTML = `<span class="dot dot-green dot-pulse"></span><span>Protected</span>`;
+    } else {
+      el.className = 'status-pill offline';
+      el.innerHTML = `<span class="dot dot-red dot-pulse"></span><span>Disconnected</span>`;
+    }
+  }
+
+  // ── Device List ──────────────────────────────────────────
+  function renderDevices() {
+    const container = document.getElementById('devices-container');
+    document.getElementById('device-count-badge').textContent = `${devicesList.length} Online`;
+
+    if (devicesList.length === 0) {
+      container.innerHTML = `<div class="no-device"><i class="fa-solid fa-circle-nodes"></i><p>Waiting for device connections…<br><br>Make sure the Shield app is running on the child's phone.</p></div>`;
+      return;
+    }
+
+    container.innerHTML = '';
+    devicesList.forEach(dev => {
+      const isSelected = selectedDeviceId === dev.id;
+      const battColor = dev.battery > 50 ? 'color:#4ade80' : (dev.battery > 20 ? 'color:var(--amber)' : 'color:#f87171');
+      const el = document.createElement('div');
+      el.className = `device-card${isSelected ? ' active' : ''}`;
+      el.onclick = () => selectDevice(dev.id);
+      el.innerHTML = `
+        <div class="device-row">
+          <div class="device-name">${dev.childName || dev.id}</div>
+          <div class="batt-chip" style="${battColor}"><i class="fa-solid fa-battery-three-quarters"></i>${dev.battery || 0}%</div>
+        </div>
+        <div class="device-meta">
+          <span class="dot dot-green"></span>
+          <span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dev.activeApp || 'Unknown'}</span>
+          ${dev.isMirroring ? '<span class="casting-chip">LIVE</span>' : '<span style="font-size:10px;color:var(--text-3);">Ready</span>'}
+        </div>
+      `;
+      container.appendChild(el);
+    });
+  }
+
+  function clearSelectedDevice() {
+    selectedDeviceId = null;
+    renderDevices();
+    if (isTelegramMiniApp) tg.BackButton.hide();
+  }
+
+  function selectDevice(id) {
+    const prev = selectedDeviceId;
+    selectedDeviceId = id;
+    if (isTelegramMiniApp) tg.BackButton.show();
+    const device = devicesList.find(d => d.id === id);
+    if (device) {
+      if (prev !== id) {
+        cachedLastFrameSrc = null;
+        lastLoadedDeviceId = id;
+        syncSelectedDevice(device);
+        renderDevices();
+        loadRemoteDirectory('');
+      } else {
+        syncSelectedDevice(device);
+        renderDevices();
+      }
+      
+      // Auto scroll to main-content area on smaller/mobile devices smoothly
+      if (window.innerWidth <= 1024) {
+        setTimeout(() => {
+          const mc = document.getElementById('main-content');
+          if (mc) {
+            mc.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 100);
+      }
+    }
+  }
+
+  function syncSelectedDevice(device) {
+    // Show device controls
+    ['device-ctrl-bar','device-metrics-strip'].forEach(id => {
+      document.getElementById(id).classList.remove('hidden');
+    });
+
+    document.getElementById('current-device-title').textContent = device.childName || device.id;
+    const appBadge = document.getElementById('current-device-app');
+    appBadge.textContent = device.activeApp || '—';
+    appBadge.classList.remove('hidden');
+
+    document.getElementById('hide-icon-btn').classList.remove('hidden');
+    document.getElementById('unhide-icon-btn').classList.remove('hidden');
+
+    isMirrorActive = device.isMirroring;
+    updateControlsForMirror();
+
+    // Metrics
+    document.getElementById('metric-storage').textContent = device.storage || '—';
+    document.getElementById('metric-ringer').textContent = device.ringerMode || '—';
+    document.getElementById('metric-network').textContent = device.networkType || '—';
+    document.getElementById('metric-screen').textContent = device.screenState || '—';
+
+    // Policy
+    document.getElementById('blocked-apps-input').value = device.blockedApps || '';
+    document.getElementById('blocked-keywords-input').value = device.blockedKeywords || 'xxx,porn,casino,fuck,kill,suicide';
+
+    const stInput = document.getElementById('screen-time-limit-input');
+    if (device.screenTimeLimitMin !== undefined) stInput.value = device.screenTimeLimitMin;
+
+    const used = device.screenTimeUsedMin || 0;
+    const limit = device.screenTimeLimitMin || 0;
+    const usedEl = document.getElementById('screen-time-used-display');
+    usedEl.textContent = limit > 0 ? `Today: ${used} / ${limit} min used` : `Today: ${used} min used (no limit set)`;
+    usedEl.style.color = (limit > 0 && used >= limit) ? '#f87171' : 'var(--text-2)';
+
+    // Screen time bar
+    const bar = document.getElementById('st-progress-bar');
+    const fill = document.getElementById('st-bar-fill');
+    if (limit > 0) {
+      bar.classList.remove('hidden');
+      fill.style.width = Math.min(100, Math.round((used / limit) * 100)) + '%';
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  function handleSelectedDeviceDisconnected() {
+    selectedDeviceId = null;
+    isMirrorActive = false;
+    ['device-ctrl-bar','device-metrics-strip'].forEach(id => {
+      document.getElementById(id).classList.add('hidden');
+    });
+    document.getElementById('current-device-title').textContent = 'Select a Device to Monitor';
+    document.getElementById('current-device-app').classList.add('hidden');
+    document.getElementById('screen-wrapper').style.display = 'none';
+    document.getElementById('mirror-loader').style.display = 'none';
+    document.getElementById('standby-info').style.display = '';
+    document.getElementById('mirror-extra-ctrl').style.display = 'none';
+    renderDevices();
+  }
+
+  // ── Mirror Controls ───────────────────────────────────────
+  function updateControlsForMirror() {
+    const btn = document.getElementById('toggle-mirror-btn');
+    const extraCtrl = document.getElementById('mirror-extra-ctrl');
+    const screen = document.getElementById('screen-wrapper');
+    const loader = document.getElementById('mirror-loader');
+    const standby = document.getElementById('standby-info');
+
+    if (isMirrorActive) {
+      btn.className = 'btn btn-stop';
+      btn.innerHTML = `<i class="fa-solid fa-stop"></i> Stop Casting`;
+      extraCtrl.style.display = 'flex';
+      standby.style.display = 'none';
+
+      if (cachedLastFrameSrc) {
+        drawScreenFrame(cachedLastFrameSrc);
+      } else {
+        const dev = devicesList.find(d => d.id === selectedDeviceId);
+        if (dev && dev.lastFrame) drawScreenFrame(dev.lastFrame);
+        else { screen.style.display = 'none'; loader.style.display = 'flex'; }
+      }
+    } else {
+      btn.className = 'btn btn-primary';
+      btn.innerHTML = `<i class="fa-solid fa-play"></i> Start Casting`;
+      extraCtrl.style.display = 'none';
+      screen.style.display = 'none';
+      loader.style.display = 'none';
+      standby.style.display = '';
+    }
+  }
+
+  function triggerDeviceMirror() {
+    if (!selectedDeviceId || !ws) return;
+    const cmd = isMirrorActive ? 'stopped' : 'requested';
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: cmd }));
+    if (cmd === 'requested') {
+      document.getElementById('standby-info').style.display = 'none';
+      document.getElementById('mirror-loader').style.display = 'flex';
+    }
+  }
+
+  function drawScreenFrame(base64Image) {
+    if (!base64Image) return;
+    const finalSrc = base64Image.startsWith('data:image/') ? base64Image : 'data:image/jpeg;base64,' + base64Image;
+    const preloader = new Image();
+    preloader.onload = () => {
+      cachedLastFrameSrc = finalSrc;
+      const img = document.getElementById('mirror-canvas');
+      img.src = finalSrc;
+      document.getElementById('mirror-loader').style.display = 'none';
+      document.getElementById('screen-wrapper').style.display = 'block';
+    };
+    preloader.onerror = () => {
+      const img = document.getElementById('mirror-canvas');
+      if (cachedLastFrameSrc && img.src !== cachedLastFrameSrc) img.src = cachedLastFrameSrc;
+    };
+    preloader.src = finalSrc;
+  }
+
+  function updateMirrorScale(val) {
+    currentScale = parseInt(val);
+    document.getElementById('zoom-value').textContent = currentScale + '%';
+    const wrapper = document.getElementById('screen-wrapper');
+    wrapper.style.width = Math.round(240 * currentScale / 100) + 'px';
+  }
+
+  function rotateMirrorFrame() {
+    currentRotation = (currentRotation + 90) % 360;
+    document.getElementById('mirror-canvas').style.transform = `rotate(${currentRotation}deg)`;
+  }
+
+  function toggleFullScreen() {
+    const el = document.getElementById('screen-wrapper');
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    }
+  }
+
+  // ── Device Commands ───────────────────────────────────────
+  function triggerDeviceBuzz() {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'buzz' }));
+  }
+
+  function triggerDeviceLock() {
+    if (!selectedDeviceId || !ws) return;
+    if (!confirm('Lock child device screen remotely via admin rights?')) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'lock' }));
+  }
+
+  function remoteToggleIconVisibility(cmd) {
+    if (!selectedDeviceId) return;
+    const action = cmd === 'hide_icon' ? 'HIDE' : 'UNHIDE';
+    if (!confirm(`${action} the app icon on the child's device?`)) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: cmd }));
+  }
+
+  // ── Monitoring Commands ───────────────────────────────────
+  function takePhoto(facing) {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'take_photo', facing }));
+    document.getElementById('snapshot-display').innerHTML = `<span style="color:var(--amber);font-size:12px;">📷 Capturing ${facing} camera…</span>`;
+    switchTab('tab-monitor');
+  }
+
+  function recordAudio(durationSec) {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'record_audio', duration: durationSec }));
+    const btn = document.getElementById('record-btn');
+    btn.textContent = '⏺ Recording…'; btn.disabled = true;
+    document.getElementById('audio-player-area').innerHTML = `<span style="color:#f87171;font-size:12px;" class="dot-pulse">🎤 Recording ${durationSec}s ambient audio…</span>`;
+    setTimeout(() => { btn.textContent = '▶ Record 30s'; btn.disabled = false; }, (durationSec + 2) * 1000);
+    switchTab('tab-monitor');
+  }
+
+  function requestLocation() {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_location' }));
+    document.getElementById('location-display').textContent = '📡 Fetching GPS…';
+  }
+
+  function fetchCallLog() {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_call_log' }));
+    document.getElementById('calllog-list').innerHTML = `<span style="color:var(--amber);font-size:12px;">📡 Fetching…</span>`;
+  }
+
+  function fetchSms(box) {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_sms', box, limit: 30 }));
+    document.getElementById('sms-list').innerHTML = `<span style="color:var(--amber);font-size:12px;">📡 Fetching ${box}…</span>`;
+  }
+
+  function fetchContacts() {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_contacts' }));
+    document.getElementById('contacts-list').innerHTML = `<span style="color:var(--amber);font-size:12px;">📡 Fetching contacts…</span>`;
+  }
+
+  function fetchInstalledApps() {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_installed_apps' }));
+    document.getElementById('apps-list').innerHTML = `<span style="color:var(--amber);font-size:12px;">📡 Fetching apps…</span>`;
+  }
+
+  function filterContacts() {
+    const q = document.getElementById('contacts-search').value.toLowerCase();
+    const filtered = cachedContacts.filter(c => c.name?.toLowerCase().includes(q) || c.number?.includes(q));
+    renderContactsList(filtered);
+  }
+
+  function filterApps() {
+    const q = document.getElementById('apps-search').value.toLowerCase();
+    const filtered = cachedApps.filter(a => a.name?.toLowerCase().includes(q) || a.package?.toLowerCase().includes(q));
+    renderAppsList(filtered);
+  }
+
+  function renderContactsList(contacts) {
+    const el = document.getElementById('contacts-list');
+    if (!contacts.length) { el.innerHTML = `<span style="color:var(--text-3);font-size:12px;">No contacts found</span>`; return; }
+    el.innerHTML = contacts.map(c => {
+      const initial = (c.name || '?')[0].toUpperCase();
+      return `<div class="contact-row">
+        <div class="contact-avatar">${initial}</div>
+        <div>
+          <div style="font-weight:600;font-size:13px;">${c.name || '?'}</div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);">${c.number || ''}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderAppsList(apps) {
+    const el = document.getElementById('apps-list');
+    if (!apps.length) { el.innerHTML = `<span style="color:var(--text-3);font-size:12px;">No apps found</span>`; return; }
+    el.innerHTML = apps.map(a => `
+      <div class="app-usage-row">
+        <div style="width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;">📱</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.name || a.package}</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.package || ''}</div>
+        </div>
+        <span class="chip chip-purple">${a.version || ''}</span>
+      </div>`).join('');
+  }
+
+  // ── Handle monitoring results ─────────────────────────────
+  function handleMonitoringResult(data) {
+    if (data.deviceId !== selectedDeviceId) return;
+
+    if (data.type === 'photo_result') {
+      const facing = data.facing === 'front' ? 'Front' : 'Back';
+      const time = new Date(data.time).toLocaleTimeString();
+      document.getElementById('snapshot-display').innerHTML =
+        `<div style="text-align:center;"><img src="${data.image}" style="border-radius:10px;max-height:220px;border:1px solid var(--border);"><p style="font-size:11px;color:var(--text-2);margin-top:6px;">📷 ${facing} — ${time}</p></div>`;
+    }
+
+    if (data.type === 'audio_result') {
+      document.getElementById('audio-player-area').innerHTML =
+        `<audio controls style="width:100%;margin-top:4px;" src="${data.audio}"></audio>
+         <p style="font-size:11px;color:var(--text-3);margin-top:6px;">Recorded at ${new Date(data.time).toLocaleTimeString()}</p>`;
+      const btn = document.getElementById('record-btn');
+      btn.textContent = '▶ Record 30s'; btn.disabled = false;
+    }
+
+    if (data.type === 'location_result') {
+      const acc = Math.round(data.accuracy || 0);
+      document.getElementById('location-display').textContent =
+        `Lat: ${data.lat.toFixed(6)}, Lng: ${data.lng.toFixed(6)} (±${acc}m, ${data.provider})`;
+      const mapEl = document.getElementById('location-map-a');
+      mapEl.href = data.mapUrl; mapEl.classList.remove('hidden');
+      const frame = document.getElementById('location-map-frame');
+      frame.src = `https://maps.google.com/maps?q=${data.lat},${data.lng}&z=15&output=embed`;
+      frame.style.display = 'block';
+    }
+
+    if (data.type === 'call_log_result') {
+      const calls = data.calls || [];
+      const icons = { incoming:'📲', outgoing:'📤', missed:'🔴', rejected:'⛔' };
+      document.getElementById('calllog-list').innerHTML = calls.length === 0
+        ? `<span style="color:var(--text-3);font-size:12px;">No calls found</span>`
+        : calls.map(c => {
+            const dur = c.duration ? Math.floor(c.duration/60)+'m'+c.duration%60+'s' : '—';
+            const date = new Date(c.date).toLocaleDateString();
+            const name = c.name ? ` (${c.name})` : '';
+            return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+              <span>${icons[c.type]||'📞'} <strong>${c.number}${name}</strong></span>
+              <span style="color:var(--text-2);">${dur} ${date}</span></div>`;
+          }).join('');
+    }
+
+    if (data.type === 'sms_result') {
+      const msgs = data.messages || [];
+      document.getElementById('sms-list').innerHTML = msgs.length === 0
+        ? `<span style="color:var(--text-3);font-size:12px;">No messages</span>`
+        : msgs.map(m => {
+            const date = new Date(m.date).toLocaleDateString();
+            const unread = m.read ? '' : '<span style="color:#60a5fa;font-size:8px;">●&nbsp;</span>';
+            const body = m.body.length > 120 ? m.body.slice(0,120)+'…' : m.body;
+            return `<div style="border-bottom:1px solid var(--border);padding:8px 0;">
+              ${unread}<strong style="font-size:12px;">${m.from}</strong>
+              <span style="float:right;font-size:10px;color:var(--text-3);">${date}</span>
+              <div style="font-size:11px;color:var(--text-2);margin-top:4px;line-height:1.5;">${body}</div></div>`;
+          }).join('');
+    }
+
+    if (data.type === 'contacts_result') {
+      cachedContacts = data.contacts || [];
+      renderContactsList(cachedContacts);
+    }
+
+    if (data.type === 'installed_apps_result') {
+      cachedApps = data.apps || [];
+      renderAppsList(cachedApps);
+    }
+
+    if (data.type === 'incoming_sms') {
+      addNotificationLog({ type:'sms', app: data.sender, title:'💬 Incoming SMS', text: data.body, time: new Date(data.time).toLocaleTimeString() });
+    }
+  }
+
+  // ── Policy ─────────────────────────────────────────────────
+  function saveParentalPolicies() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    const apps = document.getElementById('blocked-apps-input').value.trim();
+    const keywords = document.getElementById('blocked-keywords-input').value.trim();
+    const limit = parseInt(document.getElementById('screen-time-limit-input').value || '0');
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'update_policy', blockedApps: apps, blockedKeywords: keywords, screenTimeLimit: limit }));
+    showToast('📋 Policy applied to device!', 'success');
+  }
+
+  // ── Command responses ─────────────────────────────────────
+  function handleCommandResponse(data) {
+    const icon = data.success ? '✅' : '❌';
+    const t = data.success ? 'success' : 'error';
+    const names = { lock:'Lock Screen', buzz:'Vibrate', hide_icon:'Hide Icon', unhide_icon:'Restore Icon', update_policy:'Policy Update' };
+    showToast(`${icon} ${names[data.command] || data.command}: ${data.message}`, t);
+  }
+
+  function handleAppBlockedAlert(data) {
+    addNotificationLog({ type:'app_blocked', app: data.package, title:'🚫 App Blocked', text:`${data.appName} was blocked`, time: data.time, deviceId: data.deviceId });
+  }
+
+  // ── Notification Logs ─────────────────────────────────────
+  function addNotificationLog(notif) {
+    notificationLogsMemory.unshift(notif);
+    if (notificationLogsMemory.length > 300) notificationLogsMemory.pop();
+    renderNotificationLogs();
+    // Badge
+    logCount++;
+    const badge = document.getElementById('log-badge');
+    badge.textContent = logCount > 99 ? '99+' : logCount;
+    badge.classList.remove('hidden');
+  }
+
+  function renderNotificationLogs() {
+    const container = document.getElementById('logs-container');
+    const q = document.getElementById('log-search-input').value.toLowerCase().trim();
+    const filtered = notificationLogsMemory.filter(log => {
+      if (!q) return true;
+      return [log.app, log.title, log.text, log.deviceId].some(v => v && v.toLowerCase().includes(q));
+    });
+
+    if (filtered.length === 0) {
+      container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-3);"><i class="fa-solid fa-list-check" style="font-size:24px;margin-bottom:12px;display:block;"></i><p style="font-size:12px;">No logs yet.</p></div>`;
+      return;
+    }
+
+    container.innerHTML = filtered.map(log => {
+      const iconMap = { notification:'🔔', sms:'💬', call:'📞', app_blocked:'🚫', keyword:'⚠️' };
+      const icon = iconMap[log.type] || '📋';
+      return `<div class="log-item">
+        <span class="log-icon">${icon}</span>
+        <div style="flex:1;min-width:0;">
+          <div class="log-title">${log.title || 'Event'}</div>
+          <div class="log-text">${log.text || ''}</div>
+          <div class="log-meta">${log.app || ''} · ${log.time || ''}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function filterActivityLogs() { renderNotificationLogs(); }
+  function clearLogs() { notificationLogsMemory = []; logCount = 0; document.getElementById('log-badge').classList.add('hidden'); renderNotificationLogs(); }
+
+  // ── File Explorer ─────────────────────────────────────────
+  let explorerHistory = [];
+  let currentExplorerPath = '';
+
+  function requestExplorerRoot() { loadRemoteDirectory(''); }
+  function requestExplorerSandbox() { loadRemoteDirectory('SANDBOX_DEMO'); }
+
+  function navigateExplorerUp() {
+    if (explorerHistory.length > 1) {
+      explorerHistory.pop();
+      loadRemoteDirectory(explorerHistory[explorerHistory.length - 1], true);
+    }
+  }
+
+  function loadRemoteDirectory(path, isBack) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    if (!isBack) { explorerHistory.push(path); }
+    currentExplorerPath = path;
+    document.getElementById('explorer-loader').style.display = 'flex';
+    document.getElementById('explorer-table').classList.add('hidden');
+    document.getElementById('explorer-empty').classList.add('hidden');
+    updateBreadcrumbs(path);
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'list_dir', path }));
+    switchTab('tab-files');
+  }
+
+  function updateBreadcrumbs(path) {
+    const bc = document.getElementById('file-breadcrumbs');
+    const parts = (path || '/storage/emulated/0').replace(/^\//, '').split('/').filter(Boolean);
+    if (!path) {
+      bc.innerHTML = `<span>/storage/emulated/0</span>`;
+    } else {
+      let built = '';
+      const html = ['storage/emulated/0', ...parts].map((p, i) => {
+        built = i === 0 ? '' : built + '/' + parts[i-1];
+        return `<span style="cursor:pointer;color:${i === parts.length ? 'var(--text-1)' : 'var(--text-2)'};" onclick="loadRemoteDirectory('${built}${built?'/':''}${p}')">${p}</span><span style="color:var(--text-3);">/</span>`;
+      });
+      bc.innerHTML = html.join('');
+    }
+  }
+
+  function handleFileManagerResponse(data) {
+    document.getElementById('explorer-loader').style.display = 'none';
+    // FIX: server sends data.action, not data.command
+    if (data.action === 'list_dir_result') {
+      if (data.error) {
+        showToast('❌ ' + (data.error || 'Directory error'), 'error');
+        document.getElementById('explorer-empty').classList.remove('hidden');
+        return;
+      }
+      // Update current path from server response
+      if (data.currentPath) {
+        currentExplorerPath = data.currentPath;
+        updateBreadcrumbs(data.currentPath);
+        document.getElementById('custom-path-input').value = data.currentPath;
+      }
+      cachedExplorerItems = data.items || [];
+      renderExplorerCachedItems();
+    } else if (data.action === 'download_file_result') {
+      processFileReceivedPayload(data);
+    } else if (data.action === 'delete_file_result') {
+      if (data.success) {
+        showToast('🗑️ File deleted', 'success');
+        loadRemoteDirectory(currentExplorerPath, true);
+      } else {
+        showToast('❌ Delete failed', 'error');
+      }
+    } else if (data.action === 'error') {
+      showToast('❌ ' + (data.message || 'File manager error'), 'error');
+      document.getElementById('explorer-empty').classList.remove('hidden');
+    }
+  }
+
+  function renderExplorerCachedItems() {
+    const q = document.getElementById('explorer-search').value.toLowerCase();
+    const filtered = cachedExplorerItems.filter(item => !q || item.name.toLowerCase().includes(q));
+    const tbody = document.getElementById('explorer-tbody');
+    tbody.innerHTML = '';
+
+    if (filtered.length === 0) {
+      document.getElementById('explorer-table').classList.add('hidden');
+      document.getElementById('explorer-empty').classList.remove('hidden');
+      return;
+    }
+    document.getElementById('explorer-table').classList.remove('hidden');
+    document.getElementById('explorer-empty').classList.add('hidden');
+
+    filtered.forEach(item => {
+      const tr = document.createElement('tr');
+      if (item.isAdult) tr.classList.add('flagged');
+      const escapedPath = (item.path || '').replace(/'/g, "\\'");
+      const escapedName = (item.name || '').replace(/'/g, "\\'");
+
+      const iconHtml = item.isDirectory
+        ? `<i class="fa-solid fa-folder" style="color:var(--amber);margin-right:6px;"></i>`
+        : getFileIcon(item.name);
+
+      const nameCell = item.isDirectory
+        ? `<div style="cursor:pointer;color:var(--teal);" onclick="loadRemoteDirectory('${escapedPath}')">${iconHtml}<strong>${item.name}</strong></div>`
+        : `<div style="cursor:pointer;" onclick="triggerFilePreview('${escapedPath}','${escapedName}',${item.size||0})">${iconHtml}${item.name}</div>`;
+
+      const alertCell = item.isAdult
+        ? `<span class="chip chip-red">18+</span>`
+        : item.isHidden ? `<span class="chip chip-teal">HIDDEN</span>` : `<span style="color:var(--text-3);">—</span>`;
+
+      const size = item.isDirectory ? 'Folder' : formatBytes(item.size || 0);
+
+      const actions = item.isDirectory
+        ? `<div style="display:flex;gap:6px;">
+             <button onclick="loadRemoteDirectory('${escapedPath}')" class="btn btn-ghost btn-icon" style="font-size:11px;" title="Open"><i class="fa-solid fa-folder-open"></i></button>
+             <button onclick="deleteRemoteItem('${escapedPath}')" class="btn btn-red btn-icon" style="font-size:11px;" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+           </div>`
+        : `<div style="display:flex;gap:6px;">
+             <button onclick="triggerFilePreview('${escapedPath}','${escapedName}',${item.size||0})" class="btn btn-ghost btn-icon" style="font-size:11px;" title="Preview"><i class="fa-solid fa-eye"></i></button>
+             <button onclick="downloadRemoteFile('${escapedPath}','${escapedName}')" class="btn btn-primary btn-icon" style="font-size:11px;" title="Download"><i class="fa-solid fa-download"></i></button>
+             <button onclick="deleteRemoteItem('${escapedPath}')" class="btn btn-red btn-icon" style="font-size:11px;" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+           </div>`;
+
+      tr.innerHTML = `<td style="padding:8px 12px;">${nameCell}</td><td style="padding:8px 12px;">${alertCell}</td><td style="padding:8px 12px;font-family:var(--font-mono);font-size:11px;color:var(--text-3);">${size}</td><td style="padding:8px 12px;text-align:right;">${actions}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function filterExplorerItems() { renderExplorerCachedItems(); }
+
+  function getFileIcon(name) {
+    const ext = (name || '').split('.').pop().toLowerCase();
+    const icons = { jpg:'🖼', jpeg:'🖼', png:'🖼', gif:'🖼', mp4:'🎬', mkv:'🎬', webm:'🎬', mp3:'🎵', wav:'🎵', m4a:'🎵', pdf:'📄', txt:'📝', json:'📋', xml:'📋', apk:'📦', zip:'🗜', rar:'🗜' };
+    const icon = icons[ext] || '📄';
+    return `<span style="margin-right:6px;">${icon}</span>`;
+  }
+
+  function deleteRemoteItem(path) {
+    if (!confirm(`Permanently delete from device?\n\n${path}`)) return;
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'delete_file', path }));
+  }
+
+  let lastDownloadedFileBytes = null;
+  let lastDownloadedFileName = 'file.dat';
+
+  function triggerFilePreview(path, name, size) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    if (size > 250 * 1024 * 1024) { showToast('⚠️ File too large for live preview (250MB limit)', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'download_file', path }));
+    document.getElementById('explorer-loader').style.display = 'flex';
+    document.getElementById('explorer-table').classList.add('hidden');
+  }
+
+  function downloadRemoteFile(path, name) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    const sizeEl = cachedExplorerItems.find(i => i.path === path);
+    const sz = sizeEl?.size || 0;
+    if (sz > 250 * 1024 * 1024) { showToast('⚠️ File too large (250MB limit)', 'info'); return; }
+    showToast('⬇️ Downloading: ' + name, 'info');
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'download_file', path }));
+    document.getElementById('explorer-loader').style.display = 'flex';
+  }
+
+  function processFileReceivedPayload(payload) {
+    document.getElementById('explorer-loader').style.display = 'none';
+    const { name: fileName, base64: b64 } = payload;
+    try {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      lastDownloadedFileBytes = bytes;
+      lastDownloadedFileName = fileName;
+
+      document.getElementById('preview-modal-size').textContent = `Payload: ${formatBytes(bytes.length)}`;
+      document.getElementById('preview-modal-title').textContent = `Audit: [${fileName}]`;
+
+      const img = document.getElementById('preview-img');
+      const text = document.getElementById('preview-text');
+      const mediaWrap = document.getElementById('preview-media-container');
+      const video = document.getElementById('preview-video');
+      const audio = document.getElementById('preview-audio');
+      [img, text, mediaWrap, video, audio].forEach(e => e.classList.add('hidden'));
+
+      const ext = fileName.toLowerCase().split('.').pop();
+      if (['png','jpg','jpeg','gif','webp'].includes(ext)) {
+        img.src = URL.createObjectURL(new Blob([bytes], {type:'image/'+ext}));
+        img.classList.remove('hidden');
+      } else if (['txt','log','json','ini','xml','csv'].includes(ext)) {
+        text.textContent = new TextDecoder().decode(bytes);
+        text.classList.remove('hidden');
+      } else if (['mp4','mkv','webm'].includes(ext)) {
+        video.src = URL.createObjectURL(new Blob([bytes], {type:'video/mp4'}));
+        mediaWrap.classList.remove('hidden'); video.classList.remove('hidden'); video.load();
+      } else if (['mp3','wav','m4a','ogg'].includes(ext)) {
+        audio.src = URL.createObjectURL(new Blob([bytes], {type:'audio/mpeg'}));
+        mediaWrap.classList.remove('hidden'); audio.classList.remove('hidden'); audio.load();
+      } else {
+        text.textContent = `[Binary file — not directly previewable]\n\nExtension: .${ext}\nSize: ${bytes.length} bytes\n\nUse Download to open locally.`;
+        text.classList.remove('hidden');
+      }
+
+      document.getElementById('preview-modal').classList.remove('hidden');
+      document.getElementById('preview-modal-download').onclick = () => {
+        const url = URL.createObjectURL(new Blob([bytes], {type:'application/octet-stream'}));
+        Object.assign(document.createElement('a'), {href:url, download:fileName}).click();
+      };
+    } catch(e) { showToast('❌ Failed parsing file: ' + e.message, 'error'); }
+  }
+
+  function closePreviewModal() {
+    document.getElementById('preview-video').pause();
+    document.getElementById('preview-audio').pause();
+    document.getElementById('preview-modal').classList.add('hidden');
+  }
+
+  function formatBytes(b) {
+    if (!b) return '0 B';
+    const k = 1024, sz = ['B','KB','MB','GB'];
+    const i = Math.floor(Math.log(b) / Math.log(k));
+    return (b / Math.pow(k, i)).toFixed(2) + ' ' + sz[i];
+  }
+
+  // ── Toast ─────────────────────────────────────────────────
+  function showToast(msg, type='info') {
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.textContent = msg;
+    document.getElementById('toast-container').appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 400); }, 3500);
+  }
+
+  window.onload = connect;
+</script>
+
+<!-- ════════════════════════════════════════════
+     Password Gate Logic
+═══════════════════════════════════════════════ -->
+<script>
+const _SK = 'shield_sess_v4';
+
+async function doLogin() {
+  const pwd = (document.getElementById('gate-pwd').value || '').trim();
+  if (!pwd) { shakePwd(); return; }
+  const btn = document.getElementById('gate-btn');
+  const errEl = document.getElementById('gate-error');
+  const ldEl = document.getElementById('gate-loading');
+  btn.disabled = true; btn.textContent = '⏳  Checking…';
+  errEl.style.display = 'none'; ldEl.style.display = 'block';
+
+  try {
+    const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password: pwd}) });
+    const data = await res.json();
+    if (data.success) {
+      sessionStorage.setItem(_SK, data.token);
+      window.__shieldToken = data.token;
+      const gate = document.getElementById('password-gate');
+      gate.style.transition = 'opacity .4s';
+      gate.style.opacity = '0';
+      setTimeout(() => { gate.style.display = 'none'; document.getElementById('main-app').style.display = 'flex'; }, 380);
+    } else {
+      errEl.textContent = '❌ Wrong password. Try again.';
+      errEl.style.display = 'block';
+      shakePwd(); btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-lock"></i>&nbsp;&nbsp;ENTER PANEL';
+      ldEl.style.display = 'none';
+      document.getElementById('gate-pwd').value = '';
+      document.getElementById('gate-pwd').focus();
+    }
+  } catch(e) {
+    errEl.textContent = '❌ Server offline or unreachable.';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-lock"></i>&nbsp;&nbsp;ENTER PANEL';
+    ldEl.style.display = 'none';
+  }
+}
+
+function shakePwd() {
+  const el = document.getElementById('gate-pwd');
+  el.style.borderColor = '#ef4444';
+  el.style.animation = 'shake .3s ease';
+  setTimeout(() => { el.style.animation = ''; el.style.borderColor = ''; }, 400);
+}
+
+function togglePwd() {
+  const el = document.getElementById('gate-pwd');
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+(async () => {
+  const token = sessionStorage.getItem(_SK);
+  if (!token) return;
+  try {
+    const res = await fetch('/api/auth-check', { headers: {'x-shield-token': token} });
+    const d = await res.json();
+    if (d.valid) {
+      window.__shieldToken = token;
+      document.getElementById('password-gate').style.display = 'none';
+      document.getElementById('main-app').style.display = 'flex';
+    } else { sessionStorage.removeItem(_SK); }
+  } catch(e) {}
+})();
+</script>
+
+</body>
+</html>
