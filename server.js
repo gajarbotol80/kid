@@ -20,7 +20,7 @@ const PORT           = process.env.PORT         || 3000;
 const SECURITY_TOKEN = process.env.SHIELD_TOKEN || "GAJARBOTOL80";
 const BOT_TOKEN      = process.env.BOT_TOKEN    || "";
 const ADMIN_TG_ID    = Number(process.env.ADMIN_TG_ID) || 5197344486;
-const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Shield@2025";
+const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "@@@@11Aa";
 const PUBLIC_URL     = (process.env.PUBLIC_URL  || "").replace(/\/$/, "");
 
 const app = express();
