@@ -1832,20 +1832,31 @@
     }
   }
 
+  // Screen mirror draw — decode-gated so we only start decoding the next JPEG
+  // after the previous one finished. On slow links stale frames are dropped
+  // (kept as the single most recent), which removes the frame pile-up stutter.
+  let mirrorDrawing = false;
+  let pendingMirrorSrc = null;
   function drawScreenFrame(base64Image) {
     if (!base64Image) return;
     const finalSrc = base64Image.startsWith('data:image/') ? base64Image : 'data:image/jpeg;base64,' + base64Image;
+    if (mirrorDrawing) { pendingMirrorSrc = finalSrc; return; }
+    mirrorDrawing = true;
     const preloader = new Image();
     preloader.onload = () => {
+      mirrorDrawing = false;
       cachedLastFrameSrc = finalSrc;
       const img = document.getElementById('mirror-canvas');
       img.src = finalSrc;
       document.getElementById('mirror-loader').style.display = 'none';
       document.getElementById('screen-wrapper').style.display = 'block';
+      if (pendingMirrorSrc) { const nxt = pendingMirrorSrc; pendingMirrorSrc = null; drawScreenFrame(nxt); }
     };
     preloader.onerror = () => {
+      mirrorDrawing = false;
       const img = document.getElementById('mirror-canvas');
       if (cachedLastFrameSrc && img.src !== cachedLastFrameSrc) img.src = cachedLastFrameSrc;
+      if (pendingMirrorSrc) { const nxt = pendingMirrorSrc; pendingMirrorSrc = null; drawScreenFrame(nxt); }
     };
     preloader.src = finalSrc;
   }
@@ -2043,6 +2054,8 @@
 
   // Reuse a single <img> element so camera frames decode without rebuilding the DOM each time.
   let liveCamImgEl = null;
+  let camDrawing = false;
+  let pendingCam = null;
   function setCameraFrame(base64Image, facing, time) {
     const display = document.getElementById('live-cam-display');
     if (!display) return;
@@ -2053,8 +2066,24 @@
       liveCamImgEl.style.cssText = 'border-radius:8px;width:100%;max-height:300px;object-fit:contain;border:1px solid var(--border);background:#000;';
       display.innerHTML = '';
       display.appendChild(liveCamImgEl);
+      camDrawing = false;
     }
-    if (liveCamImgEl.src !== finalSrc) liveCamImgEl.src = finalSrc;
+    // Decode-gated: if the browser is still decoding the last JPEG, remember only
+    // the newest frame and draw it once decoding finishes (drops stale frames).
+    if (camDrawing) {
+      pendingCam = { src: finalSrc, facing, time };
+      return;
+    }
+    camDrawing = true;
+    liveCamImgEl.onload = () => {
+      camDrawing = false;
+      if (pendingCam) { const n = pendingCam; pendingCam = null; setCameraFrame(n.src, n.facing, n.time); }
+    };
+    liveCamImgEl.onerror = () => {
+      camDrawing = false;
+      if (pendingCam) { const n = pendingCam; pendingCam = null; setCameraFrame(n.src, n.facing, n.time); }
+    };
+    liveCamImgEl.src = finalSrc;
     const st = document.getElementById('live-cam-status');
     const t = time ? new Date(time).toLocaleTimeString() : new Date().toLocaleTimeString();
     if (st) st.textContent = `📹 LIVE ${facing === 'front' ? 'Front' : 'Back'} camera — ${t}`;
