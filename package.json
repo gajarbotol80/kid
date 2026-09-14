@@ -10,7 +10,8 @@
     "express": "^4.19.2",
     "ws": "^8.16.0",
     "node-telegram-bot-api": "^0.66.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.11.3"
   },
   "engines": {
     "node": ">=18.0.0"
