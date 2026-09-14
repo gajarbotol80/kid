@@ -1535,6 +1535,9 @@
   });
 
   let ws = null;
+  const SHIELD_BASE = location.pathname.replace(/\/+$/, '');
+  const API_BASE = '/api' + SHIELD_BASE;
+  const WS_PATH = '/ws' + SHIELD_BASE;
   let devicesList = [];
   let selectedDeviceId = null;
   let isMirrorActive = false;
@@ -1566,7 +1569,7 @@
   // ── WebSocket ─────────────────────────────────────────────
   function connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${location.host}/ws`);
+    ws = new WebSocket(`${protocol}//${location.host}${WS_PATH}`);
 
     ws.onopen = () => {
       updateStatusIndicator(true);
@@ -2874,6 +2877,7 @@
 ═══════════════════════════════════════════════ -->
 <script>
 const _SK = 'shield_sess_v4';
+const _DTK = 'shield_devtok_v1';
 
 async function doLogin() {
   const pwd = (document.getElementById('gate-pwd').value || '').trim();
@@ -2885,11 +2889,18 @@ async function doLogin() {
   errEl.style.display = 'none'; ldEl.style.display = 'block';
 
   try {
-    const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password: pwd}) });
+    const res = await fetch(`${API_BASE}/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password: pwd}) });
     const data = await res.json();
     if (data.success) {
       sessionStorage.setItem(_SK, data.token);
       window.__shieldToken = data.token;
+      if (data.deviceToken) {
+        const ti = document.getElementById('token-input');
+        if (ti) ti.value = data.deviceToken;
+        sessionStorage.setItem(_DTK, data.deviceToken);
+      } else {
+        sessionStorage.removeItem(_DTK);
+      }
       const gate = document.getElementById('password-gate');
       gate.style.transition = 'opacity .4s';
       gate.style.opacity = '0';
@@ -2928,13 +2939,15 @@ function togglePwd() {
   const token = sessionStorage.getItem(_SK);
   if (!token) return;
   try {
-    const res = await fetch('/api/auth-check', { headers: {'x-shield-token': token} });
+    const res = await fetch(`${API_BASE}/auth-check`, { headers: {'x-shield-token': token} });
     const d = await res.json();
     if (d.valid) {
       window.__shieldToken = token;
+      const dtk = sessionStorage.getItem(_DTK);
+      if (dtk) { const ti = document.getElementById('token-input'); if (ti) ti.value = dtk; }
       document.getElementById('password-gate').style.display = 'none';
       document.getElementById('main-app').style.display = 'flex';
-    } else { sessionStorage.removeItem(_SK); }
+    } else { sessionStorage.removeItem(_SK); sessionStorage.removeItem(_DTK); }
   } catch(e) {}
 })();
 </script>
