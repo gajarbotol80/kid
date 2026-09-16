@@ -930,12 +930,9 @@
           <i class="fa-solid fa-bell"></i> Logs
           <span id="log-badge" class="hidden" style="background:var(--accent);color:#fff;font-size:9px;padding:1px 5px;border-radius:99px;font-weight:700;">0</span>
         </button>
-<<<<<<< HEAD
-=======
         <button class="tab-btn hidden" data-super-only="1" onclick="switchTab('tab-members')" id="tb-members">
           <i class="fa-solid fa-users-gear"></i> Members
         </button>
->>>>>>> 50114e5 (Initial upload)
       </nav>
 
       <!-- ══════════════════════════════════
@@ -1456,8 +1453,6 @@
         </div>
       </div><!-- /tab-logs -->
 
-<<<<<<< HEAD
-=======
       <!-- ══════════════════════════════════
            TAB: MEMBERS (super-admin only)
       ═══════════════════════════════════ -->
@@ -1499,7 +1494,6 @@
         </div>
       </div><!-- /tab-members -->
 
->>>>>>> 50114e5 (Initial upload)
     </main>
   </div><!-- /app-body -->
 
@@ -1605,17 +1599,11 @@
   function switchTab(tabId) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-<<<<<<< HEAD
-    document.getElementById(tabId).classList.add('active');
-    const idx = ['tab-mirror','tab-monitor','tab-files','tab-policy','tab-logs'].indexOf(tabId);
-    document.querySelectorAll('.tab-btn')[idx].classList.add('active');
-=======
     const pane = document.getElementById(tabId);
     if (pane) pane.classList.add('active');
     const btn = document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`);
     if (btn) btn.classList.add('active');
     if (tabId === 'tab-members') loadMembers();
->>>>>>> 50114e5 (Initial upload)
     if (tabId === 'tab-logs') {
       // Clear badge
       logCount = 0;
@@ -1624,8 +1612,6 @@
     }
   }
 
-<<<<<<< HEAD
-=======
   // ── Member management (super-admin only) ───────────────────
   function applyRole(role) {
     window.__isSuper = role === 'super';
@@ -1754,7 +1740,6 @@
     catch (e) { memberMsg('Error: ' + e.message, false); }
   }
 
->>>>>>> 50114e5 (Initial upload)
   // ── WebSocket ─────────────────────────────────────────────
   function connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -3090,10 +3075,7 @@ async function doLogin() {
       } else {
         sessionStorage.removeItem(_DTK);
       }
-<<<<<<< HEAD
-=======
       if (typeof applyRole === 'function') applyRole(data.role);
->>>>>>> 50114e5 (Initial upload)
       const gate = document.getElementById('password-gate');
       gate.style.transition = 'opacity .4s';
       gate.style.opacity = '0';
@@ -3138,10 +3120,7 @@ function togglePwd() {
       window.__shieldToken = token;
       const dtk = sessionStorage.getItem(_DTK);
       if (dtk) { const ti = document.getElementById('token-input'); if (ti) ti.value = dtk; }
-<<<<<<< HEAD
-=======
       if (typeof applyRole === 'function') applyRole(d.role);
->>>>>>> 50114e5 (Initial upload)
       document.getElementById('password-gate').style.display = 'none';
       document.getElementById('main-app').style.display = 'flex';
     } else { sessionStorage.removeItem(_SK); sessionStorage.removeItem(_DTK); }
