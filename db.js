@@ -55,8 +55,6 @@ function isValidUsername(u) {
   return /^[a-z0-9_-]{2,32}$/.test(normalizeUsername(u));
 }
 
-<<<<<<< HEAD
-=======
 // ── 6-digit pairing codes ────────────────────────────────────────────────
 // A pairing code lets a device bind to an account without typing a full
 // WebSocket URL + token. `pairingCode` is the permanent code created with the
@@ -75,7 +73,6 @@ function isValidCode(code) {
   return /^\d{6}$/.test(normalizeCode(code));
 }
 
->>>>>>> 50114e5 (Initial upload)
 // ── file backend ─────────────────────────────────────────────────────────
 function loadFile() {
   if (fileCache) return fileCache;
@@ -111,12 +108,9 @@ function fileRowToUser(r) {
     adminTgId: r.adminTgId || '',
     deviceToken: r.deviceToken || '',
     botToken: r.botToken || '',
-<<<<<<< HEAD
-=======
     pairingCode: r.pairingCode || '',
     tempCode: r.tempCode || '',
     tempCodeExp: Number(r.tempCodeExp) || 0,
->>>>>>> 50114e5 (Initial upload)
     isActive: r.isActive !== false,
     createdAt: r.createdAt || 0,
     lastLogin: r.lastLogin || 0,
@@ -152,19 +146,14 @@ async function initMysql() {
       admin_tg_id   VARCHAR(32)  NOT NULL DEFAULT '',
       device_token  VARCHAR(128) NOT NULL DEFAULT '',
       bot_token     VARCHAR(255) NOT NULL DEFAULT '',
-<<<<<<< HEAD
-=======
       pairing_code  VARCHAR(12)  NOT NULL DEFAULT '',
       temp_code     VARCHAR(12)  NOT NULL DEFAULT '',
       temp_code_exp BIGINT       NOT NULL DEFAULT 0,
->>>>>>> 50114e5 (Initial upload)
       is_active     TINYINT(1)   NOT NULL DEFAULT 1,
       created_at    BIGINT       NOT NULL DEFAULT 0,
       last_login    BIGINT       NOT NULL DEFAULT 0
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
-<<<<<<< HEAD
-=======
   // Upgrade older installs that predate the pairing-code columns.
   for (const ddl of [
     "ALTER TABLE users ADD COLUMN pairing_code VARCHAR(12) NOT NULL DEFAULT '' AFTER bot_token",
@@ -173,7 +162,6 @@ async function initMysql() {
   ]) {
     try { await pool.query(ddl); } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
   }
->>>>>>> 50114e5 (Initial upload)
   mode = 'mysql';
 }
 
@@ -205,12 +193,9 @@ function rowToUser(r) {
     adminTgId: r.admin_tg_id || '',
     deviceToken: r.device_token || '',
     botToken: r.bot_token || '',
-<<<<<<< HEAD
-=======
     pairingCode: r.pairing_code || '',
     tempCode: r.temp_code || '',
     tempCodeExp: Number(r.temp_code_exp) || 0,
->>>>>>> 50114e5 (Initial upload)
     isActive: Number(r.is_active) !== 0,
     createdAt: Number(r.created_at) || 0,
     lastLogin: Number(r.last_login) || 0,
@@ -255,8 +240,6 @@ async function getUserByBotToken(botToken) {
   return fileRowToUser(loadFile().users.find(x => x.botToken === t));
 }
 
-<<<<<<< HEAD
-=======
 /**
  * Finds the active user that a 6-digit code belongs to, checking the permanent
  * pairing code first and then any un-expired temporary code.
@@ -305,7 +288,6 @@ async function setTempCode(username, ttlMs = 30 * 60 * 1000) {
   return { code, expiresAt: exp };
 }
 
->>>>>>> 50114e5 (Initial upload)
 async function createUser(fields) {
   const username = normalizeUsername(fields.username);
   if (!isValidUsername(username)) throw new Error('Invalid username (use a-z, 0-9, _ or -, 2-32 chars)');
@@ -319,12 +301,9 @@ async function createUser(fields) {
     adminTgId: String(fields.adminTgId || ''),
     deviceToken: fields.deviceToken || crypto.randomBytes(12).toString('hex'),
     botToken: fields.botToken || '',
-<<<<<<< HEAD
-=======
     pairingCode: normalizeCode(fields.pairingCode) || await allocatePairingCode(),
     tempCode: '',
     tempCodeExp: 0,
->>>>>>> 50114e5 (Initial upload)
     isActive: fields.isActive !== false,
     createdAt: Date.now(),
     lastLogin: 0,
@@ -332,28 +311,18 @@ async function createUser(fields) {
 
   if (mode === 'mysql') {
     await pool.query(
-<<<<<<< HEAD
-      `INSERT INTO users (username,password_hash,display_name,admin_tg_id,device_token,bot_token,is_active,created_at,last_login)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [row.username, row.passwordHash, row.displayName, row.adminTgId, row.deviceToken,
-       row.botToken, row.isActive ? 1 : 0, row.createdAt, row.lastLogin]
-=======
       `INSERT INTO users (username,password_hash,display_name,admin_tg_id,device_token,bot_token,pairing_code,temp_code,temp_code_exp,is_active,created_at,last_login)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [row.username, row.passwordHash, row.displayName, row.adminTgId, row.deviceToken,
        row.botToken, row.pairingCode, row.tempCode, row.tempCodeExp, row.isActive ? 1 : 0,
        row.createdAt, row.lastLogin]
->>>>>>> 50114e5 (Initial upload)
     );
   } else {
     const db = loadFile();
     db.users.push({
       username: row.username, passwordHash: row.passwordHash, displayName: row.displayName,
       adminTgId: row.adminTgId, deviceToken: row.deviceToken, botToken: row.botToken,
-<<<<<<< HEAD
-=======
       pairingCode: row.pairingCode, tempCode: row.tempCode, tempCodeExp: row.tempCodeExp,
->>>>>>> 50114e5 (Initial upload)
       isActive: row.isActive, createdAt: row.createdAt, lastLogin: row.lastLogin,
     });
     saveFile();
@@ -375,12 +344,9 @@ async function updateUser(username, fields) {
   if (fields.adminTgId !== undefined) push('admin_tg_id', String(fields.adminTgId));
   if (fields.deviceToken !== undefined) push('device_token', fields.deviceToken);
   if (fields.botToken !== undefined) push('bot_token', fields.botToken);
-<<<<<<< HEAD
-=======
   if (fields.pairingCode !== undefined) push('pairing_code', normalizeCode(fields.pairingCode));
   if (fields.tempCode !== undefined) push('temp_code', normalizeCode(fields.tempCode));
   if (fields.tempCodeExp !== undefined) push('temp_code_exp', Number(fields.tempCodeExp) || 0);
->>>>>>> 50114e5 (Initial upload)
   if (fields.isActive !== undefined) push('is_active', fields.isActive ? 1 : 0);
   if (fields.lastLogin !== undefined) push('last_login', fields.lastLogin);
 
@@ -398,12 +364,9 @@ async function updateUser(username, fields) {
     if (fields.adminTgId !== undefined) row.adminTgId = String(fields.adminTgId);
     if (fields.deviceToken !== undefined) row.deviceToken = fields.deviceToken;
     if (fields.botToken !== undefined) row.botToken = fields.botToken;
-<<<<<<< HEAD
-=======
     if (fields.pairingCode !== undefined) row.pairingCode = normalizeCode(fields.pairingCode);
     if (fields.tempCode !== undefined) row.tempCode = normalizeCode(fields.tempCode);
     if (fields.tempCodeExp !== undefined) row.tempCodeExp = Number(fields.tempCodeExp) || 0;
->>>>>>> 50114e5 (Initial upload)
     if (fields.isActive !== undefined) row.isActive = fields.isActive;
     if (fields.lastLogin !== undefined) row.lastLogin = fields.lastLogin;
     saveFile();
@@ -428,24 +391,18 @@ module.exports = {
   getMode: () => mode,
   isValidUsername,
   normalizeUsername,
-<<<<<<< HEAD
-=======
   randomPairingCode,
   normalizeCode,
   isValidCode,
->>>>>>> 50114e5 (Initial upload)
   hashPassword,
   verifyPassword,
   listUsers,
   getUser,
   getUserByAdminTgId,
   getUserByBotToken,
-<<<<<<< HEAD
-=======
   getUserByPairingCode,
   allocatePairingCode,
   setTempCode,
->>>>>>> 50114e5 (Initial upload)
   createUser,
   updateUser,
   deleteUser,

@@ -25,12 +25,9 @@ const ADMIN_TG_ID    = Number(process.env.ADMIN_TG_ID) || 5197344486;
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Shield@2025";
 const PUBLIC_URL     = (process.env.PUBLIC_URL  || "").replace(/\/$/, "");
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "shield-hook-secret";
-<<<<<<< HEAD
-=======
 // Master 6-digit pairing code: binds a device as the super-admin's own device
 // (owner = "master"). Change with MASTER_PAIR_CODE. Legacy URL+token still works.
 const MASTER_PAIR_CODE = String(process.env.MASTER_PAIR_CODE || "746426").replace(/\D/g, "").slice(0, 6);
->>>>>>> 50114e5 (Initial upload)
 
 const app = express();
 const server = http.createServer(app);
@@ -88,12 +85,9 @@ function publicUser(u) {
     displayName: u.displayName,
     adminTgId: u.adminTgId,
     deviceToken: u.deviceToken,
-<<<<<<< HEAD
-=======
     pairingCode: u.pairingCode,
     tempCode: (u.tempCode && Number(u.tempCodeExp) > Date.now()) ? u.tempCode : '',
     tempCodeExp: Number(u.tempCodeExp) || 0,
->>>>>>> 50114e5 (Initial upload)
     hasBotToken: !!u.botToken,
     isActive: u.isActive !== false,
     createdAt: u.createdAt,
@@ -115,10 +109,7 @@ function userLinks(u) {
     deviceWs: `${base.replace(/^http/, 'ws')}/ws/${u.username}`,
     webhook: `${base}/webhook/${WEBHOOK_SECRET}`,
     deviceToken: u.deviceToken,
-<<<<<<< HEAD
-=======
     pairingCode: u.pairingCode,
->>>>>>> 50114e5 (Initial upload)
   };
 }
 
@@ -229,8 +220,6 @@ app.delete('/api/users/:username', async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
-=======
 // Super-admin: rotate a member's permanent 6-digit pairing code.
 app.post('/api/users/:username/code', async (req, res) => {
   if (!requireSuper(req, res)) return;
@@ -312,7 +301,6 @@ app.post('/api/pair', async (req, res) => {
   }
 });
 
->>>>>>> 50114e5 (Initial upload)
 // ── Per-member auth ──────────────────────────────────────────────────────
 app.post('/api/:user/login', async (req, res) => {
   const username = db.normalizeUsername(req.params.user);
@@ -326,10 +314,7 @@ app.post('/api/:user/login', async (req, res) => {
   res.json({
     success: true, token, role: 'user', username,
     displayName: user.displayName, deviceToken: t.deviceToken,
-<<<<<<< HEAD
-=======
     pairingCode: t.pairingCode,
->>>>>>> 50114e5 (Initial upload)
   });
 });
 
@@ -1438,11 +1423,7 @@ function initTelegramBot() {
     if (isSuperAdmin(chatId) && text.startsWith('/')) {
       const [rawCmd, ...args] = text.split(/\s+/);
       const cmdName = rawCmd.replace(/@[\w_]+$/, '').toLowerCase();
-<<<<<<< HEAD
-      const isUserCmd = ['/newuser', '/users', '/deluser', '/resetpw'].includes(cmdName);
-=======
       const isUserCmd = ['/newuser', '/users', '/deluser', '/resetpw', '/usercode'].includes(cmdName);
->>>>>>> 50114e5 (Initial upload)
       if (isUserCmd) {
         try {
           if (cmdName === '/users') {
@@ -1455,10 +1436,7 @@ function initTelegramBot() {
               const L = userLinks(u);
               return `👤 *${escapeMd(u.username)}*${u.displayName ? ' (' + escapeMd(u.displayName) + ')' : ''}\n` +
                      `   ${u.isActive ? '🟢 active' : '🔴 disabled'} · devices: ${countDevicesOf(u.username)}\n` +
-<<<<<<< HEAD
-=======
                      `   🔢 Code: \`${escapeMdCode(u.pairingCode)}\`\n` +
->>>>>>> 50114e5 (Initial upload)
                      `   🖥️ ${L.panel}\n   🔌 ${L.deviceWs}`;
             });
             bot.sendMessage(chatId, `👥 *Members (${users.length})*\n\n` + lines.join('\n\n'),
@@ -1476,13 +1454,6 @@ function initTelegramBot() {
             const L = userLinks(user);
             bot.sendMessage(chatId,
               `✅ *Member created: ${escapeMd(user.username)}*\n\n` +
-<<<<<<< HEAD
-              `🖥️ Panel: ${L.panel}\n🔌 Device WS: ${L.deviceWs}\n🔑 Device token: \`${L.deviceToken}\`\n\n` +
-              `APK te ei device token tao dao.`,
-              { parse_mode: 'Markdown', disable_web_page_preview: true });
-            return;
-          }
-=======
               `🔢 *Pairing code: \`${escapeMdCode(L.pairingCode)}\`*\n` +
               `🖥️ Panel: ${L.panel}\n🔌 Device WS: ${L.deviceWs}\n🔑 Device token: \`${L.deviceToken}\`\n\n` +
               `APK te 6-digit code dao, othoba device token + WS link dao.`,
@@ -1518,7 +1489,6 @@ function initTelegramBot() {
               { parse_mode: 'Markdown' });
             return;
           }
->>>>>>> 50114e5 (Initial upload)
           if (cmdName === '/deluser') {
             const username = args[0];
             if (!username) { bot.sendMessage(chatId, "Usage: `/deluser <username>`", { parse_mode: 'Markdown' }); return; }
