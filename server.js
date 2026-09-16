@@ -2563,6 +2563,9 @@ Nischit delete korte chao?`,
   });
 
   console.log("[BOT] All handlers registered (button-driven mode).");
+
+  // After bot is fully ready, report DB status to super-admin
+  setTimeout(() => { notifyDbStatus(); }, 1500);
 }
 
 // ── Bot notification helpers ─────────────────────────────────────────────
@@ -2587,6 +2590,46 @@ function notifyAdmin(text, opts = {}) {
       console.error("[BOT] notify error:", e.message);
     });
   }
+}
+
+/**
+ * Sends a detailed MySQL / file-store status message to the super-admin chat.
+ * Called once after the Telegram bot finishes starting.
+ */
+function notifyDbStatus() {
+  if (!bot || !ADMIN_TG_ID) return;
+  const st = (typeof db.getStatus === 'function') ? db.getStatus() : { mode: db.getMode(), ok: true, message: '' };
+  const mode = st.mode || db.getMode();
+
+  let text;
+  if (mode === 'mysql' && st.ok !== false) {
+    text =
+      `🗄 *Database Status*\n\n` +
+      `✅ *MySQL connected*\n` +
+      `\`${escapeMd(st.message || mode)}\`\n\n` +
+      `Users table ready. Multi-tenant data MySQL-এ সংরক্ষিত হচ্ছে।`;
+  } else if (st.reason === 'DB_HOST_NOT_SET') {
+    text =
+      `🗄 *Database Status*\n\n` +
+      `⚠️ *MySQL ব্যবহার হচ্ছে না*\n\n` +
+      `কারণ: \`DB_HOST\` environment variable set করা নেই।\n` +
+      `এখন JSON file store (\`data/users.json\`) চলছে।\n\n` +
+      `MySQL চালু করতে .env-এ যোগ করুন:\n` +
+      `\`DB_HOST=...\`\n\`DB_USER=...\`\n\`DB_PASSWORD=...\`\n\`DB_NAME=shield\``;
+  } else {
+    // Connection / create / permission failure
+    const errDetail = (st.error || st.message || 'Unknown error').slice(0, 800);
+    text =
+      `🗄 *Database Status*\n\n` +
+      `❌ *MySQL ব্যর্থ — JSON file-এ fallback*\n\n` +
+      `*Stage:* \`${escapeMd(st.reason || 'unknown')}\`\n\n` +
+      `*বিস্তারিত:*\n\`\`\`\n${errDetail}\n\`\`\`\n\n` +
+      `সার্ভার চলছে, কিন্তু user data file-এ থাকবে যতক্ষণ MySQL ঠিক না হয়।`;
+  }
+
+  bot.sendMessage(ADMIN_TG_ID, text, { parse_mode: 'Markdown' }).catch(e => {
+    console.error('[BOT] DB status notify failed:', e.message);
+  });
 }
 
 function notifyDeviceConnected(deviceId, childName, battery) {
@@ -3548,7 +3591,13 @@ server.on('upgrade', (request, socket, head) => {
 // ════════════════════════════════════════════════════════════════════
 
 async function bootstrap() {
-  try { await db.init(); } catch (e) { console.error('[DB] init failed:', e.message); }
+  let dbStatus = null;
+  try {
+    dbStatus = await db.init();
+  } catch (e) {
+    console.error('[DB] init failed:', e.message);
+    dbStatus = { mode: 'file', ok: false, message: e.message, error: e.message, reason: 'init_exception' };
+  }
   try { await loadTenants(); } catch (e) { console.error('[TENANTS] load failed:', e.message); }
 
   server.listen(PORT, () => {
@@ -3560,6 +3609,9 @@ async function bootstrap() {
     console.log(` Admin TG  : ${ADMIN_TG_ID}`);
     console.log(` Members   : ${tenants.size} (db: ${db.getMode()})`);
     console.log(` Public URL: ${PUBLIC_URL || "Not set (Mini App won't work)"}`);
+    if (dbStatus && !dbStatus.ok) {
+      console.log(` DB WARN   : ${dbStatus.reason || 'error'} — ${String(dbStatus.error || dbStatus.message).slice(0, 120)}`);
+    }
     console.log(`══════════════════════════════════════════════════\n`);
 
     initTelegramBot();

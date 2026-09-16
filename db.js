@@ -26,6 +26,8 @@ const DB_SSL = String(process.env.DB_SSL || '').toLowerCase() === 'true';
 let pool = null;
 let mode = 'file'; // 'mysql' | 'file'
 let fileCache = null;
+let lastError = null;   // last MySQL failure (if any)
+let lastStatus = null;  // human-readable status for bot/console
 
 // ── password hashing ─────────────────────────────────────────────────────
 function hashPassword(password) {
@@ -118,70 +120,169 @@ function fileRowToUser(r) {
 }
 
 // ── mysql backend ────────────────────────────────────────────────────────
+function describeMysqlError(e) {
+  const code = e && (e.code || e.errno || '');
+  const msg  = (e && e.message) ? String(e.message) : 'Unknown error';
+  // Common mysql2 / MySQL error codes → clear Bengali+English reason
+  if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || /ECONNREFUSED|ENOTFOUND/i.test(msg)) {
+    return `MySQL server-এ কানেক্ট করা যায়নি (host unreachable / connection refused).\nHost: ${DB_HOST}:${DB_PORT}\nDetail: ${msg}`;
+  }
+  if (code === 'ETIMEDOUT' || /timeout/i.test(msg)) {
+    return `MySQL connection timeout.\nHost: ${DB_HOST}:${DB_PORT}\nDetail: ${msg}`;
+  }
+  if (code === 'ER_ACCESS_DENIED_ERROR' || code === 1045 || /Access denied/i.test(msg)) {
+    return `MySQL login failed — user/password ভুল অথবা user-এর permission নেই.\nUser: ${DB_USER}\nDetail: ${msg}`;
+  }
+  if (code === 'ER_BAD_DB_ERROR' || code === 1049) {
+    return `Database \`${DB_NAME}\` নেই এবং তৈরি করা যায়নি.\nDetail: ${msg}`;
+  }
+  if (code === 'ER_DBACCESS_DENIED_ERROR' || code === 1044) {
+    return `User \`${DB_USER}\`-এর \`${DB_NAME}\` database create/use করার permission নেই.\nDetail: ${msg}`;
+  }
+  if (code === 'ER_TABLEACCESS_DENIED_ERROR' || code === 1142) {
+    return `User \`${DB_USER}\`-এর table create/alter করার permission নেই.\nDetail: ${msg}`;
+  }
+  if (code === 'ER_DUP_FIELDNAME') {
+    return `Column already exists (safe to ignore).\nDetail: ${msg}`;
+  }
+  if (/SSL|certificate/i.test(msg)) {
+    return `SSL/TLS সমস্যা — DB_SSL সেটিং চেক করুন.\nDetail: ${msg}`;
+  }
+  return `MySQL error (${code || 'no-code'}): ${msg}`;
+}
+
 async function initMysql() {
   const mysql = require('mysql2/promise');
 
-  // Connect without a database first so we can create it if missing.
-  const bootConn = await mysql.createConnection({
-    host: DB_HOST, port: DB_PORT, user: DB_USER, password: DB_PASSWORD,
-    ssl: DB_SSL ? { rejectUnauthorized: true } : undefined,
-    connectTimeout: 10000,
-  });
-  await bootConn.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  // Step 1: Connect without a database so we can create it if missing.
+  let bootConn;
+  try {
+    bootConn = await mysql.createConnection({
+      host: DB_HOST, port: DB_PORT, user: DB_USER, password: DB_PASSWORD,
+      ssl: DB_SSL ? { rejectUnauthorized: true } : undefined,
+      connectTimeout: 10000,
+    });
+  } catch (e) {
+    e._stage = 'connect';
+    throw e;
+  }
+
+  try {
+    await bootConn.query(
+      `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    );
+  } catch (e) {
+    e._stage = 'create_database';
+    try { await bootConn.end(); } catch (_) {}
+    throw e;
+  }
   await bootConn.end();
 
-  pool = mysql.createPool({
-    host: DB_HOST, port: DB_PORT, user: DB_USER, password: DB_PASSWORD,
-    database: DB_NAME,
-    ssl: DB_SSL ? { rejectUnauthorized: true } : undefined,
-    waitForConnections: true, connectionLimit: 10, queueLimit: 0,
-    charset: 'utf8mb4_unicode_ci',
-  });
+  // Step 2: Pool against the target database
+  try {
+    pool = mysql.createPool({
+      host: DB_HOST, port: DB_PORT, user: DB_USER, password: DB_PASSWORD,
+      database: DB_NAME,
+      ssl: DB_SSL ? { rejectUnauthorized: true } : undefined,
+      waitForConnections: true, connectionLimit: 10, queueLimit: 0,
+      charset: 'utf8mb4_unicode_ci',
+    });
+  } catch (e) {
+    e._stage = 'create_pool';
+    throw e;
+  }
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      username      VARCHAR(64)  NOT NULL PRIMARY KEY,
-      password_hash VARCHAR(255) NOT NULL,
-      display_name  VARCHAR(128) NOT NULL DEFAULT '',
-      admin_tg_id   VARCHAR(32)  NOT NULL DEFAULT '',
-      device_token  VARCHAR(128) NOT NULL DEFAULT '',
-      bot_token     VARCHAR(255) NOT NULL DEFAULT '',
-      pairing_code  VARCHAR(12)  NOT NULL DEFAULT '',
-      temp_code     VARCHAR(12)  NOT NULL DEFAULT '',
-      temp_code_exp BIGINT       NOT NULL DEFAULT 0,
-      is_active     TINYINT(1)   NOT NULL DEFAULT 1,
-      created_at    BIGINT       NOT NULL DEFAULT 0,
-      last_login    BIGINT       NOT NULL DEFAULT 0
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+  // Step 3: Create / upgrade users table
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        username      VARCHAR(64)  NOT NULL PRIMARY KEY,
+        password_hash VARCHAR(255) NOT NULL,
+        display_name  VARCHAR(128) NOT NULL DEFAULT '',
+        admin_tg_id   VARCHAR(32)  NOT NULL DEFAULT '',
+        device_token  VARCHAR(128) NOT NULL DEFAULT '',
+        bot_token     VARCHAR(255) NOT NULL DEFAULT '',
+        pairing_code  VARCHAR(12)  NOT NULL DEFAULT '',
+        temp_code     VARCHAR(12)  NOT NULL DEFAULT '',
+        temp_code_exp BIGINT       NOT NULL DEFAULT 0,
+        is_active     TINYINT(1)   NOT NULL DEFAULT 1,
+        created_at    BIGINT       NOT NULL DEFAULT 0,
+        last_login    BIGINT       NOT NULL DEFAULT 0
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } catch (e) {
+    e._stage = 'create_table';
+    throw e;
+  }
+
   // Upgrade older installs that predate the pairing-code columns.
   for (const ddl of [
     "ALTER TABLE users ADD COLUMN pairing_code VARCHAR(12) NOT NULL DEFAULT '' AFTER bot_token",
     "ALTER TABLE users ADD COLUMN temp_code VARCHAR(12) NOT NULL DEFAULT '' AFTER pairing_code",
     "ALTER TABLE users ADD COLUMN temp_code_exp BIGINT NOT NULL DEFAULT 0 AFTER temp_code",
   ]) {
-    try { await pool.query(ddl); } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try { await pool.query(ddl); } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') { e._stage = 'alter_table'; throw e; } }
   }
   mode = 'mysql';
 }
 
+/**
+ * Initialise the store. Returns a status object:
+ *   { mode: 'mysql'|'file', ok: boolean, message: string, error: string|null }
+ */
 async function init() {
+  lastError = null;
+  lastStatus = null;
+
   if (!DB_HOST) {
     mode = 'file';
     loadFile();
+    lastStatus = {
+      mode: 'file',
+      ok: true,
+      message: 'DB_HOST set করা নেই — JSON file store (data/users.json) ব্যবহার হচ্ছে।',
+      error: null,
+      reason: 'DB_HOST_NOT_SET',
+    };
     console.log('[DB] DB_HOST not set — using JSON file store (data/users.json)');
-    return mode;
+    return lastStatus;
   }
+
   try {
     await initMysql();
+    lastStatus = {
+      mode: 'mysql',
+      ok: true,
+      message: `MySQL connected ✅\n${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}`,
+      error: null,
+      reason: null,
+    };
     console.log(`[DB] MySQL connected: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}`);
   } catch (e) {
     mode = 'file';
     loadFile();
-    console.error(`[DB] MySQL unavailable (${e.message}) — falling back to JSON file store`);
+    const stage = e._stage || 'unknown';
+    const friendly = describeMysqlError(e);
+    lastError = { stage, code: e.code || null, message: e.message, friendly };
+    lastStatus = {
+      mode: 'file',
+      ok: false,
+      message: `MySQL ব্যর্থ — JSON file-এ fallback।\nStage: ${stage}\n${friendly}`,
+      error: friendly,
+      reason: stage,
+      raw: e.message,
+    };
+    console.error(`[DB] MySQL unavailable (stage=${stage}): ${e.message} — falling back to JSON file store`);
   }
-  // Seed the legacy super-admin bot chat as a "master" convenience is handled in server.js.
-  return mode;
+  return lastStatus;
+}
+
+function getStatus() {
+  return lastStatus || { mode, ok: mode === 'mysql', message: `Current mode: ${mode}`, error: null };
+}
+
+function getLastError() {
+  return lastError;
 }
 
 function rowToUser(r) {
@@ -389,6 +490,8 @@ async function deleteUser(username) {
 module.exports = {
   init,
   getMode: () => mode,
+  getStatus,
+  getLastError,
   isValidUsername,
   normalizeUsername,
   randomPairingCode,
