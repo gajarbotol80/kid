@@ -930,6 +930,12 @@
           <i class="fa-solid fa-bell"></i> Logs
           <span id="log-badge" class="hidden" style="background:var(--accent);color:#fff;font-size:9px;padding:1px 5px;border-radius:99px;font-weight:700;">0</span>
         </button>
+<<<<<<< HEAD
+=======
+        <button class="tab-btn hidden" data-super-only="1" onclick="switchTab('tab-members')" id="tb-members">
+          <i class="fa-solid fa-users-gear"></i> Members
+        </button>
+>>>>>>> 50114e5 (Initial upload)
       </nav>
 
       <!-- ══════════════════════════════════
@@ -1450,6 +1456,50 @@
         </div>
       </div><!-- /tab-logs -->
 
+<<<<<<< HEAD
+=======
+      <!-- ══════════════════════════════════
+           TAB: MEMBERS (super-admin only)
+      ═══════════════════════════════════ -->
+      <div class="tab-pane" id="tab-members">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-users-gear" style="color:var(--accent);"></i> Member Management</div>
+            <div class="ctrl-bar">
+              <button class="btn btn-ghost" onclick="loadMembers()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+            </div>
+          </div>
+          <p style="font-size:12.5px;color:var(--text-3);line-height:1.7;margin:0 0 14px;">
+            Create one account per client. Each member gets an isolated panel at
+            <code>/&lt;username&gt;</code>, a device bridge at <code>/ws/&lt;username&gt;</code>, and a
+            <b>6-digit pairing code</b> the device can enter to bind itself. Master pairing code: <b id="master-pair-code">746426</b>.
+          </p>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:14px;background:var(--bg-2,#0f1524);border:1px solid var(--border,#232c44);border-radius:12px;margin-bottom:16px;">
+            <div style="flex:1;min-width:150px;">
+              <label style="font-size:11px;color:var(--text-3);">Username</label>
+              <input id="new-user-name" class="search-wrap" style="width:100%;" placeholder="kawsar">
+            </div>
+            <div style="flex:1;min-width:150px;">
+              <label style="font-size:11px;color:var(--text-3);">Password</label>
+              <input id="new-user-pass" class="search-wrap" style="width:100%;" placeholder="strong password">
+            </div>
+            <div style="flex:1;min-width:150px;">
+              <label style="font-size:11px;color:var(--text-3);">Display name (optional)</label>
+              <input id="new-user-disp" class="search-wrap" style="width:100%;" placeholder="Kawsar Ahmed">
+            </div>
+            <div style="flex:1;min-width:150px;">
+              <label style="font-size:11px;color:var(--text-3);">Telegram chat id (optional)</label>
+              <input id="new-user-tg" class="search-wrap" style="width:100%;" placeholder="5197344486">
+            </div>
+            <button class="btn btn-primary" onclick="createMember()"><i class="fa-solid fa-user-plus"></i> Create</button>
+          </div>
+          <div id="member-msg" style="font-size:12.5px;margin-bottom:12px;"></div>
+          <div id="members-list"><div style="text-align:center;padding:30px;color:var(--text-3);font-size:12px;">Click Refresh to load members.</div></div>
+        </div>
+      </div><!-- /tab-members -->
+
+>>>>>>> 50114e5 (Initial upload)
     </main>
   </div><!-- /app-body -->
 
@@ -1555,9 +1605,17 @@
   function switchTab(tabId) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+<<<<<<< HEAD
     document.getElementById(tabId).classList.add('active');
     const idx = ['tab-mirror','tab-monitor','tab-files','tab-policy','tab-logs'].indexOf(tabId);
     document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+=======
+    const pane = document.getElementById(tabId);
+    if (pane) pane.classList.add('active');
+    const btn = document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`);
+    if (btn) btn.classList.add('active');
+    if (tabId === 'tab-members') loadMembers();
+>>>>>>> 50114e5 (Initial upload)
     if (tabId === 'tab-logs') {
       // Clear badge
       logCount = 0;
@@ -1566,6 +1624,137 @@
     }
   }
 
+<<<<<<< HEAD
+=======
+  // ── Member management (super-admin only) ───────────────────
+  function applyRole(role) {
+    window.__isSuper = role === 'super';
+    document.querySelectorAll('[data-super-only]').forEach(el => {
+      el.classList.toggle('hidden', !window.__isSuper);
+    });
+  }
+
+  async function memberApi(path, options) {
+    const opts = Object.assign({ headers: {} }, options || {});
+    opts.headers['Content-Type'] = 'application/json';
+    opts.headers['x-shield-token'] = window.__shieldToken || '';
+    const res = await fetch(API_BASE + path, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) throw new Error(data.message || ('HTTP ' + res.status));
+    return data;
+  }
+
+  function memberMsg(text, ok) {
+    const el = document.getElementById('member-msg');
+    if (!el) return;
+    el.innerHTML = text || '';
+    el.style.color = ok === false ? '#ef4444' : '#4ade80';
+  }
+
+  async function createMember() {
+    const username = (document.getElementById('new-user-name').value || '').trim();
+    const password = (document.getElementById('new-user-pass').value || '').trim();
+    const displayName = (document.getElementById('new-user-disp').value || '').trim();
+    const adminTgId = (document.getElementById('new-user-tg').value || '').trim();
+    if (!username || !password) { memberMsg('Username and password required.', false); return; }
+    try {
+      memberMsg('Creating…', true);
+      await memberApi('/users', { method: 'POST', body: JSON.stringify({ username, password, displayName, adminTgId }) });
+      document.getElementById('new-user-name').value = '';
+      document.getElementById('new-user-pass').value = '';
+      document.getElementById('new-user-disp').value = '';
+      document.getElementById('new-user-tg').value = '';
+      memberMsg('Member created.', true);
+      loadMembers();
+    } catch (e) { memberMsg('Error: ' + e.message, false); }
+  }
+
+  function copyText(t) {
+    try { navigator.clipboard.writeText(t); memberMsg('Copied: ' + t, true); }
+    catch (_) { memberMsg(t, true); }
+  }
+
+  async function loadMembers() {
+    const box = document.getElementById('members-list');
+    if (!box || !window.__isSuper) return;
+    try {
+      const data = await memberApi('/users', { method: 'GET' });
+      const users = data.users || [];
+      if (!users.length) {
+        box.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-3);font-size:12px;">No members yet. Create one above.</div>';
+        return;
+      }
+      box.innerHTML = users.map(u => {
+        const base = location.origin;
+        const panel = base + '/' + u.username;
+        const ws = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/' + u.username;
+        const tempLine = u.tempCode
+          ? `<span class="chip chip-teal">Temp ${u.tempCode}</span>`
+          : '';
+        return `
+        <div style="border:1px solid var(--border,#232c44);border-radius:12px;padding:14px;margin-bottom:12px;background:var(--bg-2,#0f1524);">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b style="font-size:14px;">${u.username}</b>
+              ${u.displayName ? `<span style="color:var(--text-3);font-size:12px;"> (${u.displayName})</span>` : ''}
+              <span class="chip ${u.isActive ? 'chip-teal' : ''}" style="${u.isActive ? '' : 'background:#7f1d1d;color:#fff;'}">${u.isActive ? 'active' : 'disabled'}</span>
+              <span class="chip">${u.devicesOnline} device(s)</span>
+              ${tempLine}
+            </div>
+            <div class="ctrl-bar">
+              <button class="btn btn-ghost" onclick="rotateCode('${u.username}')"><i class="fa-solid fa-key"></i> New code</button>
+              <button class="btn btn-ghost" onclick="makeTempCode('${u.username}')"><i class="fa-solid fa-clock"></i> Temp code</button>
+              <button class="btn btn-ghost" onclick="resetMemberPw('${u.username}')"><i class="fa-solid fa-lock"></i> Reset pw</button>
+              <button class="btn btn-ghost" onclick="toggleMember('${u.username}', ${u.isActive ? 'false' : 'true'})"><i class="fa-solid fa-power-off"></i> ${u.isActive ? 'Disable' : 'Enable'}</button>
+              <button class="btn btn-ghost" style="color:#ef4444;" onclick="deleteMember('${u.username}')"><i class="fa-solid fa-trash"></i></button>
+            </div>
+          </div>
+          <div style="margin-top:10px;font-size:12.5px;line-height:2;">
+            <div>Pairing code: <b style="font-size:16px;letter-spacing:3px;color:var(--accent);">${u.pairingCode || '—'}</b>
+              <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px;" onclick="copyText('${u.pairingCode || ''}')">copy</button></div>
+            <div>Panel: <a href="${panel}" target="_blank" style="color:#9ee6ff;">${panel}</a></div>
+            <div>Device WS: <span style="font-family:monospace;">${ws}</span></div>
+            <div>Device token: <span style="font-family:monospace;">${u.deviceToken || '—'}</span></div>
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      box.innerHTML = `<div style="color:#ef4444;font-size:12.5px;">Error: ${e.message}</div>`;
+    }
+  }
+
+  async function rotateCode(username) {
+    if (!confirm('Generate a NEW permanent pairing code for ' + username + '? Devices already paired keep working.')) return;
+    try { const d = await memberApi('/users/' + username + '/code', { method: 'POST' }); memberMsg('New code: ' + d.user.pairingCode, true); loadMembers(); }
+    catch (e) { memberMsg('Error: ' + e.message, false); }
+  }
+
+  async function makeTempCode(username) {
+    const m = prompt('Temporary code validity in minutes:', '30');
+    if (m === null) return;
+    try { const d = await memberApi('/users/' + username + '/temp-code', { method: 'POST', body: JSON.stringify({ minutes: parseInt(m) || 30 }) }); memberMsg('Temp code: ' + d.code, true); loadMembers(); }
+    catch (e) { memberMsg('Error: ' + e.message, false); }
+  }
+
+  async function resetMemberPw(username) {
+    const p = prompt('New password for ' + username + ':');
+    if (!p) return;
+    try { await memberApi('/users/' + username, { method: 'PATCH', body: JSON.stringify({ password: p }) }); memberMsg('Password updated.', true); }
+    catch (e) { memberMsg('Error: ' + e.message, false); }
+  }
+
+  async function toggleMember(username, active) {
+    try { await memberApi('/users/' + username, { method: 'PATCH', body: JSON.stringify({ isActive: active }) }); loadMembers(); }
+    catch (e) { memberMsg('Error: ' + e.message, false); }
+  }
+
+  async function deleteMember(username) {
+    if (!confirm('Delete member ' + username + ' permanently?')) return;
+    try { await memberApi('/users/' + username, { method: 'DELETE' }); memberMsg('Deleted.', true); loadMembers(); }
+    catch (e) { memberMsg('Error: ' + e.message, false); }
+  }
+
+>>>>>>> 50114e5 (Initial upload)
   // ── WebSocket ─────────────────────────────────────────────
   function connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2901,6 +3090,10 @@ async function doLogin() {
       } else {
         sessionStorage.removeItem(_DTK);
       }
+<<<<<<< HEAD
+=======
+      if (typeof applyRole === 'function') applyRole(data.role);
+>>>>>>> 50114e5 (Initial upload)
       const gate = document.getElementById('password-gate');
       gate.style.transition = 'opacity .4s';
       gate.style.opacity = '0';
@@ -2945,6 +3138,10 @@ function togglePwd() {
       window.__shieldToken = token;
       const dtk = sessionStorage.getItem(_DTK);
       if (dtk) { const ti = document.getElementById('token-input'); if (ti) ti.value = dtk; }
+<<<<<<< HEAD
+=======
+      if (typeof applyRole === 'function') applyRole(d.role);
+>>>>>>> 50114e5 (Initial upload)
       document.getElementById('password-gate').style.display = 'none';
       document.getElementById('main-app').style.display = 'flex';
     } else { sessionStorage.removeItem(_SK); sessionStorage.removeItem(_DTK); }
